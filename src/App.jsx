@@ -62,7 +62,7 @@ const defaultDoc = {
   date: new Date().toISOString().slice(0, 10),
   by: '',
   customerType: 'company',
-  companyDailySeq: '',
+  documentSeq: '',
   countryCode: '',
   customerCode: '',
   customerOrderSeq: '',
@@ -94,6 +94,15 @@ const money = (value) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`
+
+const documentMoney = (value) => {
+  const rounded = roundCurrency(value)
+  const text = rounded.toLocaleString('en-US', {
+    minimumFractionDigits: Number.isInteger(rounded) ? 0 : 2,
+    maximumFractionDigits: 2,
+  })
+  return `${text}$`
+}
 
 const cny = (value) =>
   `RMB ${roundCurrency(value).toLocaleString('en-US', {
@@ -192,12 +201,6 @@ function twoDigits(value) {
   return String(n).padStart(2, '0').slice(-2)
 }
 
-function firstCustomerInitial(customer) {
-  const source = `${customer.company || customer.attn || customer.buyer || ''}`.trim()
-  const match = source.match(/[A-Za-z0-9]/)
-  return match ? match[0].toUpperCase() : ''
-}
-
 function suggestCustomerCode(customer, customerType) {
   const source = `${customer.company || customer.attn || customer.buyer || ''}`.trim().toUpperCase()
   const cleaned = source
@@ -210,23 +213,25 @@ function suggestCustomerCode(customer, customerType) {
   if (customerType === 'personal') return chars[0]
   const words = cleaned.split(' ').filter(Boolean)
   if (words.length >= 2) {
-    const initials = words.map((word) => word[0]).join('')
-    return (initials + chars).slice(0, 3)
+    return words.map((word) => word[0]).join('').slice(0, 4)
   }
   if (chars.length <= 3) return chars
   return `${chars[0]}${chars[1]}${chars[chars.length - 1]}`.slice(0, 3)
 }
 
 function buildDocumentNo(doc, customer) {
-  const customerCode = (doc.customerCode || suggestCustomerCode(customer, doc.customerType) || firstCustomerInitial(customer)).toUpperCase()
+  const sequence = doc.documentSeq || doc.customerOrderSeq || 1
+  const countryCode = (doc.countryCode || '').toUpperCase()
+  const customerCode = (doc.customerCode || suggestCustomerCode(customer, doc.customerType)).toUpperCase()
+  const customerOrderSeq = twoDigits(doc.customerOrderSeq || 1)
   return [
     'ALL',
     formatCodeDate(doc.date),
-    twoDigits(doc.companyDailySeq),
+    twoDigits(sequence),
     '-',
-    (doc.countryCode || '').toUpperCase(),
+    countryCode,
     customerCode,
-    twoDigits(doc.customerOrderSeq),
+    customerOrderSeq,
   ].join('')
 }
 
@@ -250,10 +255,45 @@ async function loadWorkbook(template) {
   return workbook
 }
 
+async function loadAssetDataUrl(path) {
+  const response = await fetch(path)
+  const blob = await response.blob()
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.readAsDataURL(blob)
+  })
+}
+
+async function loadAssetBuffer(path) {
+  const response = await fetch(path)
+  return response.arrayBuffer()
+}
+
 function setCell(sheet, address, value) {
   const cell = sheet.getCell(address)
   cell.value = value
   return cell
+}
+
+function setFittedCell(sheet, address, value, { baseSize = 12, minSize = 8, wrapAt = 28 } = {}) {
+  const cell = setCell(sheet, address, value)
+  const text = String(value || '')
+  const shrinkSteps = Math.max(0, Math.ceil((text.length - wrapAt) / 12))
+  cell.font = { ...(cell.font || {}), size: Math.max(minSize, baseSize - shrinkSteps) }
+  cell.alignment = {
+    ...(cell.alignment || {}),
+    wrapText: text.length > wrapAt,
+    vertical: cell.alignment?.vertical || 'center',
+  }
+  return cell
+}
+
+function adjustRowHeight(sheet, rowNumber, values, { baseHeight = 19, charsPerLine = 52, lineHeight = 12, maxHeight = 54 } = {}) {
+  const longestLines = values
+    .map((value) => String(value || '').split('\n').reduce((max, line) => Math.max(max, Math.ceil(line.length / charsPerLine)), 1))
+    .reduce((max, lines) => Math.max(max, lines), 1)
+  sheet.getRow(rowNumber).height = Math.min(maxHeight, Math.max(baseHeight, longestLines * lineHeight + 7))
 }
 
 function copyStyle(from, to) {
@@ -281,8 +321,23 @@ function safeUnmerge(sheet, range) {
   }
 }
 
+function safeMerge(sheet, range) {
+  try {
+    sheet.mergeCells(range)
+  } catch {
+    // The template may already have this range merged.
+  }
+}
+
+function addSheetLogo(workbook, sheet) {
+  return loadAssetBuffer('/assets/logo-mark.png').then((buffer) => {
+    const logoId = workbook.addImage({ buffer, extension: 'png' })
+    sheet.addImage(logoId, 'B1:C3')
+  })
+}
+
 function clearTemplateSampleData(sheet) {
-  ;['D5', 'D6', 'D7', 'D8', 'H5', 'H6', 'H7', 'G8', 'I8', 'G19', 'G28'].forEach((cell) => {
+  ;['B4', 'D4', 'D5', 'D6', 'D7', 'D8', 'G5', 'H5', 'H6', 'H7', 'G8', 'I8', 'G19', 'G20', 'G21', 'G28'].forEach((cell) => {
     setCell(sheet, cell, '')
   })
   clearInvoiceRows(sheet, 10, 18)
@@ -291,16 +346,24 @@ function clearTemplateSampleData(sheet) {
 function fillInvoice(sheet, payload, title) {
   const { customer, doc, rows, totals, fees } = payload
   clearTemplateSampleData(sheet)
-  setCell(sheet, title === 'COMMERCIAL INVOICE' ? 'D4' : 'B4', title)
-  setCell(sheet, 'D5', customer.company)
-  setCell(sheet, 'D6', customer.attn)
-  setCell(sheet, 'D7', customer.address)
-  setCell(sheet, 'D8', customer.tel)
+  const noLabel = title === 'COMMERCIAL INVOICE' ? 'CI NO. :' : title === 'PROFORMA INVOICE' ? 'PI NO. :' : 'QUOTE NO. :'
+  safeUnmerge(sheet, 'A4:I4')
+  safeMerge(sheet, 'A4:I4')
+  const titleCell = setCell(sheet, 'A4', title)
+  titleCell.font = { ...(titleCell.font || {}), name: 'Calibri', size: 14, bold: true }
+  titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
+  setCell(sheet, 'G5', noLabel)
+  setFittedCell(sheet, 'D5', customer.company, { baseSize: 12, minSize: 9, wrapAt: 34 })
+  setFittedCell(sheet, 'D6', customer.attn, { baseSize: 12, minSize: 9, wrapAt: 34 })
+  setFittedCell(sheet, 'D7', customer.address, { baseSize: 10.5, minSize: 8, wrapAt: 46 })
+  setFittedCell(sheet, 'D8', customer.tel, { baseSize: 10.5, minSize: 8, wrapAt: 34 })
   setCell(sheet, 'H5', doc.no)
   setCell(sheet, 'H6', formatDate(doc.date))
   setCell(sheet, 'H7', doc.by)
   setCell(sheet, 'G8', doc.from)
   setCell(sheet, 'I8', doc.to)
+  adjustRowHeight(sheet, 5, [customer.company], { baseHeight: 24, charsPerLine: 38, maxHeight: 42 })
+  adjustRowHeight(sheet, 7, [customer.address], { baseHeight: 33, charsPerLine: 48, maxHeight: 58 })
 
   const neededRows = Math.max(rows.length + 2, 3)
   const baseTotalRow = 14
@@ -318,18 +381,19 @@ function fillInvoice(sheet, payload, title) {
   rows.forEach((row, index) => {
     const excelRow = 10 + index
     setCell(sheet, `B${excelRow}`, index + 1)
-    setCell(sheet, `C${excelRow}`, row.description)
-    setCell(sheet, `E${excelRow}`, row.qty === null ? '***' : row.qty)
-    setCell(sheet, `G${excelRow}`, row.unitPrice === null ? '***' : money(row.unitPrice))
-    setCell(sheet, `I${excelRow}`, money(row.subtotal))
+    setFittedCell(sheet, `C${excelRow}`, row.description, { baseSize: 9, minSize: 7, wrapAt: 42 })
+    setCell(sheet, `E${excelRow}`, row.qty === null ? '***' : `${row.qty}KG`)
+    setCell(sheet, `G${excelRow}`, row.unitPrice === null ? '***' : documentMoney(row.unitPrice))
+    setCell(sheet, `I${excelRow}`, documentMoney(row.subtotal))
+    adjustRowHeight(sheet, excelRow, [row.description], { baseHeight: 19, charsPerLine: 50, maxHeight: 46 })
   })
 
   const totalRow = 10 + rows.length
-  safeUnmerge(sheet, `B${totalRow}:I${totalRow}`)
-  setCell(sheet, `B${totalRow}`, 'Total')
-  setCell(sheet, `E${totalRow}`, totals.qty || '')
-  setCell(sheet, `G${totalRow}`, '***')
-  setCell(sheet, `I${totalRow}`, money(totals.grand))
+  setCell(sheet, `B${totalRow}`, '')
+  setCell(sheet, `C${totalRow}`, '')
+  setCell(sheet, `E${totalRow}`, '')
+  setCell(sheet, `G${totalRow}`, '')
+  setCell(sheet, `I${totalRow}`, documentMoney(totals.grand))
 
   setCell(sheet, `B${totalRow + 1}`, amountWords(totals.grand))
   setCell(sheet, `B${totalRow + 2}`, 'Payment: ')
@@ -347,8 +411,9 @@ function fillInvoice(sheet, payload, title) {
   setCell(sheet, `B${totalRow + 5}`, `Exchange rate: 1 USD = RMB ${num(fees.exchangeRate).toFixed(4)}`)
   setCell(sheet, `B${totalRow + 6}`, `Final unit price: ${money(totals.cifPerKg)} / KG`)
 
-  const buyerRow = title === 'COMMERCIAL INVOICE' ? 19 : Math.max(28, totalRow + 14)
+  const buyerRow = title === 'COMMERCIAL INVOICE' ? Math.max(21, totalRow + 7) : Math.max(20, totalRow + 7)
   setCell(sheet, `G${buyerRow}`, customer.buyer || customer.company)
+  setFittedCell(sheet, `G${buyerRow}`, customer.buyer || customer.company, { baseSize: 12, minSize: 9, wrapAt: 34 })
 }
 
 function buildRows(items, fees, totals) {
@@ -395,68 +460,110 @@ function downloadWorkbook(workbook, filename) {
   })
 }
 
-function exportPdf(kind, payload) {
+async function exportPdf(kind, payload) {
   const { customer, doc, rows, totals, fees } = payload
   const title = kind === 'PI' ? 'PROFORMA INVOICE' : kind === 'CI' ? 'COMMERCIAL INVOICE' : 'QUOTATION'
   const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
   const width = pdf.internal.pageSize.getWidth()
+  const logoDataUrl = await loadAssetDataUrl('/assets/logo-mark.png')
 
+  const fitText = (text, x, y, maxWidth, { size = 12, minSize = 8, style = 'normal', align = 'left', lineHeight = 1.15 } = {}) => {
+    const value = String(text || '')
+    let currentSize = size
+    pdf.setFont('helvetica', style)
+    pdf.setFontSize(currentSize)
+    while (currentSize > minSize && pdf.getTextWidth(value) > maxWidth) {
+      currentSize -= 0.5
+      pdf.setFontSize(currentSize)
+    }
+    const lines = pdf.splitTextToSize(value, maxWidth)
+    pdf.text(lines, x, y, { align, lineHeightFactor: lineHeight })
+    return lines.length * currentSize * lineHeight
+  }
+
+  const labelValue = (label, value, x, y, labelWidth, valueWidth, valueSize = 12) => {
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(12)
+    pdf.text(label, x + labelWidth, y, { align: 'right' })
+    return fitText(value, x + labelWidth + 5, y, valueWidth, { size: valueSize, minSize: 8 })
+  }
+
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(18)
+  pdf.addImage(logoDataUrl, 'PNG', 105, 48, 34, 34)
+  pdf.text(companyName, 152, 68)
+  pdf.setFont('helvetica', 'normal')
+  pdf.setFontSize(10.5)
+  pdf.text(companyAddress, width / 2, 96, { align: 'center' })
+  pdf.text('Tel: +86-0755-28996208', width * 0.36, 114, { align: 'center' })
+  pdf.text('Fax: +86-0755-28994568', width * 0.67, 114, { align: 'center' })
   pdf.setFont('helvetica', 'bold')
   pdf.setFontSize(15)
-  pdf.text(companyName, 40, 42)
-  pdf.setFont('helvetica', 'normal')
-  pdf.setFontSize(8.5)
-  pdf.text(companyAddress, 40, 58)
-  pdf.text('Tel: +86-0755-28996208    Fax: +86-0755-28994568', 40, 72)
-  pdf.setFont('helvetica', 'bold')
-  pdf.setFontSize(17)
-  pdf.text(title, width / 2, 104, { align: 'center' })
+  pdf.text(title, width / 2, 136, { align: 'center' })
 
-  pdf.setFontSize(9)
-  pdf.setFont('helvetica', 'normal')
-  const left = [
-    ['Company', customer.company],
-    ['ATTN', customer.attn],
-    ['Address', customer.address],
-    ['Tel', customer.tel],
-  ]
-  const right = [
-    ['No.', doc.no],
-    ['Date', formatDate(doc.date)],
-    ['By', doc.by],
-    ['From / To', `${doc.from || ''} / ${doc.to || ''}`],
-  ]
-  left.forEach(([label, value], index) => pdf.text(`${label}: ${value || ''}`, 40, 130 + index * 16, { maxWidth: 285 }))
-  right.forEach(([label, value], index) => pdf.text(`${label}: ${value || ''}`, 365, 130 + index * 16, { maxWidth: 180 }))
+  const noLabel = kind === 'CI' ? 'CI NO. :' : kind === 'PI' ? 'PI NO. :' : 'QUOTE NO. :'
+  let leftY = 160
+  leftY += Math.max(24, labelValue('Company:', customer.company, 40, leftY, 58, 250, 12) + 10)
+  leftY += Math.max(24, labelValue('ATTN:', customer.attn, 40, leftY, 58, 250, 12) + 10)
+  leftY += Math.max(28, labelValue('Add.', customer.address, 40, leftY, 58, 245, 10.5) + 12)
+  labelValue('Tel:', customer.tel, 40, leftY, 58, 250, 11)
+  labelValue(noLabel, doc.no, 365, 165, 70, 130, 12)
+  labelValue('Date:', formatDate(doc.date), 365, 192, 70, 130, 12)
+  labelValue('By:', doc.by, 365, 220, 70, 130, 12)
+  labelValue('From:', doc.from, 350, 250, 52, 80, 11)
+  labelValue('To', doc.to, 455, 250, 30, 86, 11)
+  const tableStartY = Math.max(262, leftY + 18)
 
   autoTable(pdf, {
-    startY: 205,
+    startY: tableStartY,
+    margin: { left: 20, right: 20 },
     head: [['Item', 'Description', 'QTY(KG)', 'Unit Price (USD)', 'Subtotal']],
     body: rows.map((row, index) => [
       index + 1,
       row.description,
-      row.qty === null ? '***' : row.qty,
-      row.unitPrice === null ? '***' : money(row.unitPrice),
-      money(row.subtotal),
+      row.qty === null ? '***' : `${row.qty}KG`,
+      row.unitPrice === null ? '***' : documentMoney(row.unitPrice),
+      documentMoney(row.subtotal),
     ]),
-    foot: [['Total', '', totals.qty || '', '***', money(totals.grand)]],
-    styles: { font: 'helvetica', fontSize: 9, cellPadding: 5 },
-    headStyles: { fillColor: [18, 32, 51] },
-    footStyles: { fillColor: [238, 244, 248], textColor: [23, 33, 47], fontStyle: 'bold' },
+    foot: [['', '', '', '', documentMoney(totals.grand)]],
+    theme: 'grid',
+    styles: {
+      font: 'helvetica',
+      fontSize: 9,
+      cellPadding: { top: 5, right: 3, bottom: 5, left: 3 },
+      lineColor: [0, 0, 0],
+      lineWidth: 0.75,
+      textColor: [0, 0, 0],
+      valign: 'middle',
+      overflow: 'linebreak',
+    },
+    headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold', halign: 'center' },
+    footStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'normal', halign: 'center' },
+    columnStyles: {
+      0: { cellWidth: 34, halign: 'center' },
+      1: { cellWidth: 260, halign: 'left' },
+      2: { cellWidth: 62, halign: 'center' },
+      3: { cellWidth: 92, halign: 'center' },
+      4: { cellWidth: 98, halign: 'center' },
+    },
+    didParseCell: (data) => {
+      const text = Array.isArray(data.cell.text) ? data.cell.text.join(' ') : String(data.cell.text || '')
+      if (text.length > 42 && data.column.index === 1) data.cell.styles.fontSize = 8
+      if (text.length > 70 && data.column.index === 1) data.cell.styles.fontSize = 7
+    },
   })
 
-  const endY = pdf.lastAutoTable.finalY + 18
-  pdf.setFontSize(9)
-  pdf.text(amountWords(totals.grand), 40, endY)
-  pdf.text(`Payment: ${doc.payment || ''}`, 40, endY + 18)
-  pdf.text(`Lead-time: ${doc.leadTime || ''}`, 40, endY + 36)
-  pdf.text(`Exchange rate: 1 USD = RMB ${num(fees.exchangeRate).toFixed(4)}`, 40, endY + 54)
-  pdf.text(`Final unit price: ${money(totals.cifPerKg)} / KG (${cny(fromUsd(totals.cifPerKg, 'CNY', fees.exchangeRate))} / KG)`, 40, endY + 72)
-
-  pdf.text('The seller', 80, endY + 122)
-  pdf.text('The buyer', 390, endY + 122)
-  pdf.text(companyName, 60, endY + 140)
-  pdf.text(customer.buyer || customer.company || '', 370, endY + 140)
+  const signY = Math.max(455, pdf.lastAutoTable.finalY + 90)
+  pdf.setFont('helvetica', 'normal')
+  pdf.setFontSize(11)
+  pdf.text('The seller', 55, signY)
+  pdf.text('The buyer', 385, signY)
+  pdf.text(companyName, 55, signY + 45)
+  pdf.line(55, signY + 49, 235, signY + 49)
+  fitText(customer.buyer || customer.company || '', 385, signY + 45, 170, { size: 11, minSize: 8 })
+  pdf.line(385, signY + 49, 555, signY + 49)
+  pdf.setFontSize(10)
+  pdf.text('Page  1  ,  Total  1  Pages', width / 2, 820, { align: 'center' })
 
   const cleanNo = doc.no.replace(/[^\w-]/g, '') || `${kind}-${doc.date || new Date().toISOString().slice(0, 10)}`
   pdf.save(`${cleanNo}-${kind}.pdf`)
@@ -570,8 +677,11 @@ function App() {
   const updateFees = (key, value) => setFees((current) => ({ ...current, [key]: value }))
   const updateItem = (id, key, value) =>
     setItems((current) => current.map((item) => (item.id === id ? { ...item, [key]: value } : item)))
-  const generatedDocNo = buildDocumentNo(doc, customer)
-  const activeDocNo = doc.no || generatedDocNo
+  const generatedCustomerCode = suggestCustomerCode(customer, doc.customerType)
+  const activeCustomerCode = doc.customerCode || generatedCustomerCode
+  const generatedDocNo = buildDocumentNo({ ...doc, customerCode: activeCustomerCode }, customer)
+  const docNoLooksAuto = /^ALL\d{8}(?:-[A-Z0-9]+)?(?:-DOC)?$/i.test(doc.no)
+  const activeDocNo = !doc.no || docNoLooksAuto ? generatedDocNo : doc.no
   const isDuplicateNo = generatedNos.includes(activeDocNo)
 
   const resetForm = () => {
@@ -606,15 +716,16 @@ function App() {
       },
       title,
     )
+    await addSheetLogo(workbook, sheet)
     const cleanNo = activeDocNo.replace(/[^\w-]/g, '') || `${kind}-${doc.date || new Date().toISOString().slice(0, 10)}`
     await downloadWorkbook(workbook, `${cleanNo}-${kind}.xlsx`)
     rememberNo()
     setStatus(`${kind} Excel 已生成，可在浏览器下载记录里查看`)
   }
 
-  const exportDocumentPdf = (kind) => {
+  const exportDocumentPdf = async (kind) => {
     setStatus(`正在生成 ${kind} PDF...`)
-    exportPdf(kind, {
+    await exportPdf(kind, {
       ...payload,
       doc: { ...doc, no: activeDocNo },
       rows: buildRows(items, fees, totals),
@@ -659,6 +770,13 @@ function App() {
             <span>Document</span>
           </div>
           <Input label="Date" type="date" value={doc.date} onChange={(value) => updateDoc('date', value)} />
+          <Input
+            label="单据流水号"
+            type="number"
+            value={doc.documentSeq}
+            placeholder="01"
+            onChange={(value) => updateDoc('documentSeq', value)}
+          />
           <div className="serial-box">
             <div className="serial-preview">
               <span>自动单号</span>
@@ -668,8 +786,8 @@ function App() {
               填入单号
             </button>
           </div>
-          {isDuplicateNo && <p className="duplicate-warning">这个单号已在本机生成过，请调整公司当天序号或客户订单序号。</p>}
-          <Input label="PI / Quote No." value={doc.no} onChange={(value) => updateDoc('no', value)} />
+          {isDuplicateNo && <p className="duplicate-warning">这个单号已在本机生成过，请调整单据流水号。</p>}
+          <Input label="PI / Quote No." value={activeDocNo} onChange={(value) => updateDoc('no', value)} />
           <label className="field">
             <span>客户类型</span>
             <select value={doc.customerType} onChange={(event) => updateDoc('customerType', event.target.value)}>
@@ -677,13 +795,6 @@ function App() {
               <option value="personal">个人采购</option>
             </select>
           </label>
-          <Input
-            label="公司当天第几单"
-            type="number"
-            value={doc.companyDailySeq}
-            placeholder="03"
-            onChange={(value) => updateDoc('companyDailySeq', value)}
-          />
           <div className="two-col">
             <Input
               label="国家代码"
@@ -693,8 +804,8 @@ function App() {
             />
             <Input
               label="客户编码"
-              value={doc.customerCode}
-              placeholder={suggestCustomerCode(customer, doc.customerType) || 'ABC'}
+              value={activeCustomerCode}
+              placeholder={generatedCustomerCode || 'ABC'}
               onChange={(value) => updateDoc('customerCode', value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4))}
             />
           </div>
