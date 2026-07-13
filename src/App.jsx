@@ -304,9 +304,27 @@ async function loadAssetDataUrl(path) {
   })
 }
 
+async function loadAssetBuffer(path) {
+  const response = await fetch(path)
+  return response.arrayBuffer()
+}
+
 function setCell(sheet, address, value) {
   const cell = sheet.getCell(address)
   cell.value = value
+  return cell
+}
+
+function setFittedCell(sheet, address, value, { baseSize = 12, minSize = 8, wrapAt = 28 } = {}) {
+  const cell = setCell(sheet, address, value)
+  const text = String(value || '')
+  const shrinkSteps = Math.max(0, Math.ceil((text.length - wrapAt) / 12))
+  cell.font = { ...(cell.font || {}), size: Math.max(minSize, baseSize - shrinkSteps) }
+  cell.alignment = {
+    ...(cell.alignment || {}),
+    wrapText: text.length > wrapAt,
+    vertical: cell.alignment?.vertical || 'center',
+  }
   return cell
 }
 
@@ -315,62 +333,6 @@ function adjustRowHeight(sheet, rowNumber, values, { baseHeight = 19, charsPerLi
     .map((value) => String(value || '').split('\n').reduce((max, line) => Math.max(max, Math.ceil(line.length / charsPerLine)), 1))
     .reduce((max, lines) => Math.max(max, lines), 1)
   sheet.getRow(rowNumber).height = Math.min(maxHeight, Math.max(baseHeight, longestLines * lineHeight + 7))
-}
-
-function setMergedLine(sheet, rowNumber, value, { fontSize = 9, bold = false, wrap = false, height = 18, charsPerLine = 105 } = {}) {
-  const range = `B${rowNumber}:I${rowNumber}`
-  safeUnmerge(sheet, range)
-  safeMerge(sheet, range)
-  const cell = setCell(sheet, `B${rowNumber}`, value)
-  cell.font = { ...(cell.font || {}), name: 'Calibri', size: fontSize, bold }
-  cell.alignment = {
-    ...(cell.alignment || {}),
-    horizontal: 'left',
-    vertical: wrap ? 'top' : 'center',
-    wrapText: wrap,
-  }
-  if (wrap) {
-    adjustRowHeight(sheet, rowNumber, [value], { baseHeight: height, charsPerLine, lineHeight: 15, maxHeight: 78 })
-  } else {
-    sheet.getRow(rowNumber).height = height
-  }
-  return cell
-}
-
-function setMergedRangeLine(
-  sheet,
-  rowNumber,
-  startCol,
-  endCol,
-  value,
-  { fontSize = 10, bold = false, wrap = true, height = 18, charsPerLine = 70, maxHeight = 88 } = {},
-) {
-  const range = `${startCol}${rowNumber}:${endCol}${rowNumber}`
-  safeUnmerge(sheet, range)
-  safeMerge(sheet, range)
-  const cell = setCell(sheet, `${startCol}${rowNumber}`, value)
-  cell.font = { ...(cell.font || {}), name: 'Calibri', size: fontSize, bold }
-  cell.alignment = {
-    ...(cell.alignment || {}),
-    horizontal: 'left',
-    vertical: wrap ? 'top' : 'center',
-    wrapText: wrap,
-  }
-  if (wrap) {
-    adjustRowHeight(sheet, rowNumber, [value], { baseHeight: height, charsPerLine, lineHeight: 13, maxHeight })
-  } else {
-    sheet.getRow(rowNumber).height = height
-  }
-  return cell
-}
-
-function normalizeSheetFonts(sheet, endRow) {
-  for (let row = 1; row <= endRow; row += 1) {
-    for (let col = 1; col <= 9; col += 1) {
-      const cell = sheet.getRow(row).getCell(col)
-      cell.font = { ...(cell.font || {}), name: 'Calibri' }
-    }
-  }
 }
 
 function copyStyle(from, to) {
@@ -404,6 +366,13 @@ function safeMerge(sheet, range) {
   } catch {
     // The template may already have this range merged.
   }
+}
+
+function addSheetLogo(workbook, sheet) {
+  return loadAssetBuffer('/assets/logo-mark.png').then((buffer) => {
+    const logoId = workbook.addImage({ buffer, extension: 'png' })
+    sheet.addImage(logoId, 'B1:C3')
+  })
 }
 
 function clearTemplateSampleData(sheet) {
@@ -443,60 +412,24 @@ function fillInvoice(sheet, payload, title) {
   const isPi = title === 'PROFORMA INVOICE'
   clearTemplateSampleData(sheet)
   const noLabel = title === 'COMMERCIAL INVOICE' ? 'CI NO. :' : title === 'PROFORMA INVOICE' ? 'PI NO. :' : 'QUOTE NO. :'
-  safeUnmerge(sheet, 'A1:I1')
-  safeMerge(sheet, 'A1:I1')
-  safeUnmerge(sheet, 'A2:I2')
-  safeMerge(sheet, 'A2:I2')
-  const companyNameCell = setCell(sheet, 'A1', companyProfile.name)
-  companyNameCell.font = { ...(companyNameCell.font || {}), name: 'Calibri', size: 20, bold: true }
-  companyNameCell.alignment = { horizontal: 'center', vertical: 'center' }
-  const companyAddressCell = setCell(sheet, 'A2', companyProfile.address)
-  companyAddressCell.font = { ...(companyAddressCell.font || {}), name: 'Calibri', size: 10 }
-  companyAddressCell.alignment = { horizontal: 'center', vertical: 'center', wrapText: true }
-  sheet.getRow(1).height = 26.25
-  adjustRowHeight(sheet, 2, [companyProfile.address], { baseHeight: 18, charsPerLine: 105, lineHeight: 14, maxHeight: 46 })
-  setCell(sheet, 'D3', `Tel: ${companyProfile.tel}`)
-  setCell(sheet, 'E3', `Fax: ${companyProfile.fax}`)
-  ;['D3', 'E3'].forEach((address) => {
-    const cell = sheet.getCell(address)
-    cell.font = { ...(cell.font || {}), name: 'Calibri', size: 11, bold: false }
-    cell.alignment = { horizontal: 'center', vertical: 'center', wrapText: false }
-  })
-  sheet.getRow(3).height = 18
+  setFittedCell(sheet, 'A1', companyProfile.name, { baseSize: 16, minSize: 11, wrapAt: 42 })
+  setFittedCell(sheet, 'A2', companyProfile.address, { baseSize: 10, minSize: 7, wrapAt: 95 })
+  sheet.getRow(2).height = 34
   safeUnmerge(sheet, 'A4:I4')
   safeMerge(sheet, 'A4:I4')
   const titleCell = setCell(sheet, 'A4', title)
-  titleCell.font = { ...(titleCell.font || {}), name: 'Calibri', size: 16, bold: true, underline: true }
+  titleCell.font = { ...(titleCell.font || {}), name: 'Calibri', size: 14, bold: true }
   titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
-  sheet.getRow(4).height = 21
   setCell(sheet, 'G5', noLabel)
-  setMergedRangeLine(sheet, 5, 'D', 'F', customer.company, { fontSize: 11, height: 24, charsPerLine: 36, maxHeight: 54 })
-  setMergedRangeLine(sheet, 6, 'D', 'F', customer.attn, { fontSize: 11, height: 20, charsPerLine: 36, maxHeight: 44 })
-  setMergedRangeLine(sheet, 7, 'D', 'F', customer.address, { fontSize: 10, height: 26, charsPerLine: 44, maxHeight: 72 })
-  setMergedRangeLine(sheet, 8, 'D', 'E', customer.tel, { fontSize: 10.5, wrap: false, height: 20 })
+  setFittedCell(sheet, 'D5', customer.company, { baseSize: 12, minSize: 9, wrapAt: 34 })
+  setFittedCell(sheet, 'D6', customer.attn, { baseSize: 12, minSize: 9, wrapAt: 34 })
+  setFittedCell(sheet, 'D7', customer.address, { baseSize: 10.5, minSize: 8, wrapAt: 46 })
+  setFittedCell(sheet, 'D8', customer.tel, { baseSize: 10.5, minSize: 8, wrapAt: 34 })
   setCell(sheet, 'H5', doc.no)
   setCell(sheet, 'H6', formatDate(doc.date))
-  if (doc.by) {
-    setCell(sheet, 'G7', 'By:')
-    setCell(sheet, 'H7', doc.by)
-  } else {
-    setCell(sheet, 'G7', '')
-    setCell(sheet, 'H7', '')
-  }
-  if (doc.from) {
-    setCell(sheet, 'F8', 'From:                         ')
-    setCell(sheet, 'G8', doc.from)
-  } else {
-    setCell(sheet, 'F8', '')
-    setCell(sheet, 'G8', '')
-  }
-  if (doc.to) {
-    setCell(sheet, 'H8', 'To')
-    setCell(sheet, 'I8', doc.to)
-  } else {
-    setCell(sheet, 'H8', '')
-    setCell(sheet, 'I8', '')
-  }
+  setCell(sheet, 'H7', doc.by)
+  setCell(sheet, 'G8', doc.from)
+  setCell(sheet, 'I8', doc.to)
   adjustRowHeight(sheet, 5, [customer.company], { baseHeight: 24, charsPerLine: 38, maxHeight: 42 })
   adjustRowHeight(sheet, 7, [customer.address], { baseHeight: 33, charsPerLine: 48, maxHeight: 58 })
 
@@ -519,10 +452,11 @@ function fillInvoice(sheet, payload, title) {
   rows.forEach((row, index) => {
     const excelRow = itemStartRow + index
     setCell(sheet, `B${excelRow}`, index + 1)
-    setMergedRangeLine(sheet, excelRow, 'C', 'D', row.description, { fontSize: 9, height: 22, charsPerLine: 48, maxHeight: 96 })
+    setFittedCell(sheet, `C${excelRow}`, row.description, { baseSize: 9, minSize: 7, wrapAt: 42 })
     setCell(sheet, `E${excelRow}`, row.qty === null ? '***' : `${row.qty}KG`)
     setCell(sheet, `G${excelRow}`, row.unitPrice === null ? '***' : documentMoney(row.unitPrice))
     setCell(sheet, `I${excelRow}`, documentMoney(row.subtotal))
+    adjustRowHeight(sheet, excelRow, [row.description], { baseHeight: 19, charsPerLine: 50, maxHeight: 46 })
   })
 
   setCell(sheet, `B${totalRow}`, '')
@@ -531,11 +465,11 @@ function fillInvoice(sheet, payload, title) {
   setCell(sheet, `G${totalRow}`, '')
   setCell(sheet, `I${totalRow}`, documentMoney(totals.grand))
 
-  setMergedLine(sheet, totalRow + 1, amountWords(totals.grand), { fontSize: 9, wrap: true, height: 20, charsPerLine: 100 })
+  setCell(sheet, `B${totalRow + 1}`, amountWords(totals.grand))
   setCell(sheet, `B${totalRow + 2}`, 'Payment: ')
-  setMergedRangeLine(sheet, totalRow + 2, 'D', 'I', doc.payment, { fontSize: 9, height: 20, charsPerLine: 74, maxHeight: 72 })
+  setCell(sheet, `D${totalRow + 2}`, doc.payment)
   setCell(sheet, `B${totalRow + 3}`, 'Lead-time: ')
-  setMergedRangeLine(sheet, totalRow + 3, 'D', 'I', doc.leadTime, { fontSize: 9, height: 20, charsPerLine: 74, maxHeight: 72 })
+  setCell(sheet, `D${totalRow + 3}`, doc.leadTime)
 
   const rule = termRules[fees.incoterm]
   const insuranceNote = rule.needsInsurance
@@ -546,13 +480,13 @@ function fillInvoice(sheet, payload, title) {
   const hasBankInfo = Boolean(companyProfile.bank.accountNo || companyProfile.bank.bankName || companyProfile.bank.swift)
   const bankRow = totalRow + 5
   if (isPi && hasBankInfo) {
-    setMergedLine(sheet, bankRow, 'BANK ACCOUNT:', { fontSize: 10, bold: true, height: 20 })
-    setMergedLine(sheet, bankRow + 1, `Beneficiary Name :   ${companyProfile.name.toUpperCase()}`, { height: 20 })
-    setMergedLine(sheet, bankRow + 2, `Address of Beneficiary :   ${companyProfile.address}`, { wrap: true, height: 20 })
-    setMergedLine(sheet, bankRow + 3, `Beneficiary Account No. :  ${companyProfile.bank.accountNo || ''}`, { height: 20 })
-    setMergedLine(sheet, bankRow + 4, `Beneficiary bank:  ${companyProfile.bank.bankName || ''}`, { height: 20 })
-    setMergedLine(sheet, bankRow + 5, `SWIFT Code:  ${companyProfile.bank.swift || ''}`, { height: 20 })
-    setMergedLine(sheet, bankRow + 6, `Bank Address:  ${companyProfile.bank.bankAddress || ''}`, { wrap: true, height: 20 })
+    setCell(sheet, `B${bankRow}`, 'BANK ACCOUNT:')
+    setCell(sheet, `B${bankRow + 1}`, `Beneficiary Name :   ${companyProfile.name.toUpperCase()}`)
+    setCell(sheet, `B${bankRow + 2}`, `Address of Beneficiary :   ${companyProfile.address}`)
+    setCell(sheet, `B${bankRow + 3}`, `Beneficiary Account No. :  ${companyProfile.bank.accountNo || ''}`)
+    setCell(sheet, `B${bankRow + 4}`, `Beneficiary bank:  ${companyProfile.bank.bankName || ''}`)
+    setCell(sheet, `B${bankRow + 5}`, `SWIFT Code:  ${companyProfile.bank.swift || ''}`)
+    setCell(sheet, `B${bankRow + 6}`, `Bank Address:  ${companyProfile.bank.bankAddress || ''}`)
   }
 
   let buyerRow = isPi && hasBankInfo ? bankRow + 9 : totalRow + 5
@@ -562,14 +496,14 @@ function fillInvoice(sheet, payload, title) {
       `Exchange rate: 1 USD = RMB ${num(fees.exchangeRate).toFixed(4)}`,
       `Final unit price: ${money(totals.cifPerKg)} / KG`,
     ].filter(Boolean)
-    noteRows.forEach((note, index) => setMergedLine(sheet, totalRow + 4 + index, note, { fontSize: 9, wrap: true, height: 18 }))
+    noteRows.forEach((note, index) => setCell(sheet, `B${totalRow + 4 + index}`, note))
     buyerRow = totalRow + 5 + noteRows.length
   }
   setCell(sheet, `C${buyerRow - 1}`, 'The seller')
   setCell(sheet, `G${buyerRow - 1}`, 'The buyer')
-  setMergedRangeLine(sheet, buyerRow, 'C', 'F', companyProfile.name, { fontSize: 10, bold: true, height: 24, charsPerLine: 44, maxHeight: 66 })
-  setMergedRangeLine(sheet, buyerRow, 'G', 'I', customer.buyer || customer.company, { fontSize: 10, bold: true, height: 24, charsPerLine: 34, maxHeight: 66 })
-  normalizeSheetFonts(sheet, buyerRow + 2)
+  setFittedCell(sheet, `C${buyerRow}`, companyProfile.name, { baseSize: 12, minSize: 9, wrapAt: 34 })
+  setCell(sheet, `G${buyerRow}`, customer.buyer || customer.company)
+  setFittedCell(sheet, `G${buyerRow}`, customer.buyer || customer.company, { baseSize: 12, minSize: 9, wrapAt: 34 })
 }
 
 function buildRows(items, fees, totals) {
@@ -638,61 +572,41 @@ async function exportPdf(kind, payload) {
   }
 
   const labelValue = (label, value, x, y, labelWidth, valueWidth, valueSize = 12) => {
-    if (!value) return 0
     pdf.setFont('helvetica', 'bold')
     pdf.setFontSize(12)
     pdf.text(label, x + labelWidth, y, { align: 'right' })
     return fitText(value, x + labelWidth + 5, y, valueWidth, { size: valueSize, minSize: 8 })
   }
 
-  pdf.addImage(logoDataUrl, 'PNG', 112, 34, 30, 30)
   pdf.setFont('helvetica', 'bold')
-  pdf.setFontSize(20)
-  pdf.text(companyProfile.name, width / 2, 55, { align: 'center' })
-  const headerAddressHeight = fitText(companyProfile.address, width / 2, 78, 520, {
-    size: 9,
-    minSize: 7.5,
-    align: 'center',
-    lineHeight: 1.05,
-  })
-  const contactY = 78 + Math.max(14, headerAddressHeight + 7)
+  pdf.setFontSize(18)
+  pdf.addImage(logoDataUrl, 'PNG', 105, 48, 34, 34)
+  pdf.text(companyProfile.name, 152, 68)
   pdf.setFont('helvetica', 'normal')
-  pdf.setFontSize(10)
-  pdf.text(`Tel: ${companyProfile.tel}`, width * 0.36, contactY, { align: 'center' })
-  pdf.text(`Fax: ${companyProfile.fax}`, width * 0.67, contactY, { align: 'center' })
+  pdf.setFontSize(10.5)
+  pdf.text(companyProfile.address, width / 2, 96, { align: 'center' })
+  pdf.text(`Tel: ${companyProfile.tel}`, width * 0.36, 114, { align: 'center' })
+  pdf.text(`Fax: ${companyProfile.fax}`, width * 0.67, 114, { align: 'center' })
   pdf.setFont('helvetica', 'bold')
-  pdf.setFontSize(16)
-  const titleY = contactY + 20
-  pdf.text(title, width / 2, titleY, { align: 'center' })
-  const titleWidth = pdf.getTextWidth(title)
-  pdf.line(width / 2 - titleWidth / 2, titleY + 3, width / 2 + titleWidth / 2, titleY + 3)
-
-  const drawTemplateField = (label, value, labelX, valueX, y, valueWidth, valueSize = 10.5) => {
-    if (!value) return 0
-    pdf.setFont('helvetica', 'bold')
-    pdf.setFontSize(11)
-    pdf.text(label, labelX, y)
-    return fitText(value, valueX, y, valueWidth, { size: valueSize, minSize: 7.5, lineHeight: 1.08 })
-  }
+  pdf.setFontSize(15)
+  pdf.text(title, width / 2, 136, { align: 'center' })
 
   const noLabel = kind === 'CI' ? 'CI NO. :' : kind === 'PI' ? 'PI NO. :' : 'QUOTE NO. :'
-  let leftY = titleY + 22
-  const rightY = leftY
-  leftY += Math.max(20, drawTemplateField('Company:', customer.company, 42, 100, leftY, 245, 10.5) + 8)
-  leftY += Math.max(20, drawTemplateField('ATTN:', customer.attn, 42, 100, leftY, 245, 10.5) + 8)
-  leftY += Math.max(26, drawTemplateField('Add.', customer.address, 42, 100, leftY, 245, 9.5) + 10)
-  leftY += Math.max(18, drawTemplateField('Tel:', customer.tel, 42, 100, leftY, 245, 10) + 6)
-
-  labelValue(noLabel, doc.no, 350, rightY, 58, 145, 10.5)
-  labelValue('Date:', formatDate(doc.date), 350, rightY + 24, 58, 145, 10.5)
-  labelValue('By:', doc.by, 350, rightY + 48, 58, 145, 10.5)
-  labelValue('From:', doc.from, 338, rightY + 74, 45, 80, 10)
-  labelValue('To', doc.to, 448, rightY + 74, 22, 80, 10)
-  const tableStartY = Math.max(rightY + 92, leftY + 8)
+  let leftY = 160
+  leftY += Math.max(24, labelValue('Company:', customer.company, 40, leftY, 58, 250, 12) + 10)
+  leftY += Math.max(24, labelValue('ATTN:', customer.attn, 40, leftY, 58, 250, 12) + 10)
+  leftY += Math.max(28, labelValue('Add.', customer.address, 40, leftY, 58, 245, 10.5) + 12)
+  labelValue('Tel:', customer.tel, 40, leftY, 58, 250, 11)
+  labelValue(noLabel, doc.no, 365, 165, 70, 130, 12)
+  labelValue('Date:', formatDate(doc.date), 365, 192, 70, 130, 12)
+  labelValue('By:', doc.by, 365, 220, 70, 130, 12)
+  labelValue('From:', doc.from, 350, 250, 52, 80, 11)
+  labelValue('To', doc.to, 455, 250, 30, 86, 11)
+  const tableStartY = Math.max(262, leftY + 18)
 
   autoTable(pdf, {
     startY: tableStartY,
-    margin: { left: 32, right: 32 },
+    margin: { left: 20, right: 20 },
     head: [['Item', 'Description', 'QTY(KG)', 'Unit Price (USD)', 'Subtotal']],
     body: rows.map((row, index) => [
       index + 1,
@@ -717,10 +631,10 @@ async function exportPdf(kind, payload) {
     footStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'normal', halign: 'center' },
     columnStyles: {
       0: { cellWidth: 34, halign: 'center' },
-      1: { cellWidth: 245, halign: 'left' },
+      1: { cellWidth: 260, halign: 'left' },
       2: { cellWidth: 62, halign: 'center' },
       3: { cellWidth: 92, halign: 'center' },
-      4: { cellWidth: 92, halign: 'center' },
+      4: { cellWidth: 98, halign: 'center' },
     },
     didParseCell: (data) => {
       const text = Array.isArray(data.cell.text) ? data.cell.text.join(' ') : String(data.cell.text || '')
@@ -731,48 +645,29 @@ async function exportPdf(kind, payload) {
 
   const hasBankInfo = kind === 'PI' && Boolean(companyProfile.bank.accountNo || companyProfile.bank.bankName || companyProfile.bank.swift)
   const bankY = pdf.lastAutoTable.finalY + 22
-  let bankEndY = bankY
   if (hasBankInfo) {
     pdf.setFont('helvetica', 'bold')
     pdf.setFontSize(9)
     pdf.text('BANK ACCOUNT:', 40, bankY)
-    let cursorY = bankY + 15
-    ;[
-      `Beneficiary Name :   ${companyProfile.name.toUpperCase()}`,
-      `Address of Beneficiary :   ${companyProfile.address}`,
-      `Beneficiary Account No. :  ${companyProfile.bank.accountNo || ''}`,
-      `Beneficiary bank:  ${companyProfile.bank.bankName || ''}`,
-      `SWIFT Code:  ${companyProfile.bank.swift || ''}`,
-      `Bank Address:  ${companyProfile.bank.bankAddress || ''}`,
-    ].forEach((line) => {
-      const height = fitText(line, 40, cursorY, 515, { size: 8.5, minSize: 7, lineHeight: 1.1 })
-      cursorY += Math.max(14, height + 3)
-    })
-    bankEndY = cursorY
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(8.5)
+    pdf.text(`Beneficiary Name :   ${companyProfile.name.toUpperCase()}`, 40, bankY + 14)
+    pdf.text(`Address of Beneficiary :   ${companyProfile.address}`, 40, bankY + 28)
+    pdf.text(`Beneficiary Account No. :  ${companyProfile.bank.accountNo || ''}`, 40, bankY + 42)
+    pdf.text(`Beneficiary bank:  ${companyProfile.bank.bankName || ''}`, 40, bankY + 56)
+    pdf.text(`SWIFT Code:  ${companyProfile.bank.swift || ''}`, 40, bankY + 70)
+    pdf.text(`Bank Address:  ${companyProfile.bank.bankAddress || ''}`, 40, bankY + 84)
   }
 
-  const signY = hasBankInfo ? Math.max(535, bankEndY + 32) : Math.max(455, bankY + 42)
+  const signY = hasBankInfo ? Math.max(535, bankY + 120) : Math.max(455, bankY + 42)
   pdf.setFont('helvetica', 'normal')
   pdf.setFontSize(11)
-  const sellerBox = { x: 45, width: 210 }
-  const buyerBox = { x: 340, width: 210 }
-  pdf.text('The seller', sellerBox.x + sellerBox.width / 2, signY, { align: 'center' })
-  pdf.text('The buyer', buyerBox.x + buyerBox.width / 2, signY, { align: 'center' })
-  const sellerTextHeight = fitText(companyProfile.name, sellerBox.x + sellerBox.width / 2, signY + 45, sellerBox.width, {
-    size: 10,
-    minSize: 8,
-    align: 'center',
-    lineHeight: 1.12,
-  })
-  const buyerTextHeight = fitText(customer.buyer || customer.company || '', buyerBox.x + buyerBox.width / 2, signY + 45, buyerBox.width, {
-    size: 10,
-    minSize: 7.5,
-    align: 'center',
-    lineHeight: 1.12,
-  })
-  const signatureLineY = signY + 52 + Math.max(sellerTextHeight, buyerTextHeight)
-  pdf.line(sellerBox.x, signatureLineY, sellerBox.x + sellerBox.width, signatureLineY)
-  pdf.line(buyerBox.x, signatureLineY, buyerBox.x + buyerBox.width, signatureLineY)
+  pdf.text('The seller', 55, signY)
+  pdf.text('The buyer', 385, signY)
+  pdf.text(companyProfile.name, 55, signY + 45)
+  pdf.line(55, signY + 49, 235, signY + 49)
+  fitText(customer.buyer || customer.company || '', 385, signY + 45, 170, { size: 11, minSize: 8 })
+  pdf.line(385, signY + 49, 555, signY + 49)
   pdf.setFontSize(10)
   pdf.text('Page  1  ,  Total  1  Pages', width / 2, 820, { align: 'center' })
 
@@ -928,6 +823,7 @@ function App() {
       },
       title,
     )
+    await addSheetLogo(workbook, sheet)
     const cleanNo = activeDocNo.replace(/[^\w-]/g, '') || `${kind}-${doc.date || new Date().toISOString().slice(0, 10)}`
     await downloadWorkbook(workbook, `${cleanNo}-${kind}.xlsx`)
     rememberNo()
