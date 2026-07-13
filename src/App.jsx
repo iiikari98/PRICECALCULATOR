@@ -547,9 +547,8 @@ function fillInvoice(sheet, payload, title) {
   }
   setCell(sheet, `C${buyerRow - 1}`, 'The seller')
   setCell(sheet, `G${buyerRow - 1}`, 'The buyer')
-  setFittedCell(sheet, `C${buyerRow}`, companyProfile.name, { baseSize: 12, minSize: 9, wrapAt: 34 })
-  setCell(sheet, `G${buyerRow}`, customer.buyer || customer.company)
-  setFittedCell(sheet, `G${buyerRow}`, customer.buyer || customer.company, { baseSize: 12, minSize: 9, wrapAt: 34 })
+  setMergedRangeLine(sheet, buyerRow, 'C', 'F', companyProfile.name, { fontSize: 10, height: 24, charsPerLine: 44, maxHeight: 66 })
+  setMergedRangeLine(sheet, buyerRow, 'G', 'I', customer.buyer || customer.company, { fontSize: 10, height: 24, charsPerLine: 34, maxHeight: 66 })
 }
 
 function buildRows(items, fees, totals) {
