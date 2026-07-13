@@ -319,7 +319,7 @@ function setFittedCell(sheet, address, value, { baseSize = 12, minSize = 8, wrap
   const cell = setCell(sheet, address, value)
   const text = String(value || '')
   const shrinkSteps = Math.max(0, Math.ceil((text.length - wrapAt) / 12))
-  cell.font = { ...(cell.font || {}), size: Math.max(minSize, baseSize - shrinkSteps) }
+  cell.font = { ...(cell.font || {}), name: 'Calibri', size: Math.max(minSize, baseSize - shrinkSteps) }
   cell.alignment = {
     ...(cell.alignment || {}),
     wrapText: text.length > wrapAt,
@@ -340,7 +340,7 @@ function setMergedLine(sheet, rowNumber, value, { fontSize = 9, bold = false, wr
   safeUnmerge(sheet, range)
   safeMerge(sheet, range)
   const cell = setCell(sheet, `B${rowNumber}`, value)
-  cell.font = { ...(cell.font || {}), size: fontSize, bold }
+  cell.font = { ...(cell.font || {}), name: 'Calibri', size: fontSize, bold }
   cell.alignment = {
     ...(cell.alignment || {}),
     horizontal: 'left',
@@ -361,13 +361,13 @@ function setMergedRangeLine(
   startCol,
   endCol,
   value,
-  { fontSize = 10, wrap = true, height = 18, charsPerLine = 70, maxHeight = 88 } = {},
+  { fontSize = 10, bold = false, wrap = true, height = 18, charsPerLine = 70, maxHeight = 88 } = {},
 ) {
   const range = `${startCol}${rowNumber}:${endCol}${rowNumber}`
   safeUnmerge(sheet, range)
   safeMerge(sheet, range)
   const cell = setCell(sheet, `${startCol}${rowNumber}`, value)
-  cell.font = { ...(cell.font || {}), size: fontSize }
+  cell.font = { ...(cell.font || {}), name: 'Calibri', size: fontSize, bold }
   cell.alignment = {
     ...(cell.alignment || {}),
     horizontal: 'left',
@@ -380,6 +380,15 @@ function setMergedRangeLine(
     sheet.getRow(rowNumber).height = height
   }
   return cell
+}
+
+function normalizeSheetFonts(sheet, endRow) {
+  for (let row = 1; row <= endRow; row += 1) {
+    for (let col = 1; col <= 9; col += 1) {
+      const cell = sheet.getRow(row).getCell(col)
+      cell.font = { ...(cell.font || {}), name: 'Calibri' }
+    }
+  }
 }
 
 function copyStyle(from, to) {
@@ -468,10 +477,10 @@ function fillInvoice(sheet, payload, title) {
   titleCell.font = { ...(titleCell.font || {}), name: 'Calibri', size: 14, bold: true }
   titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
   setCell(sheet, 'G5', noLabel)
-  setMergedRangeLine(sheet, 5, 'D', 'F', customer.company, { fontSize: 11, height: 24, charsPerLine: 36, maxHeight: 54 })
-  setMergedRangeLine(sheet, 6, 'D', 'F', customer.attn, { fontSize: 11, height: 20, charsPerLine: 36, maxHeight: 44 })
+  setMergedRangeLine(sheet, 5, 'D', 'F', customer.company, { fontSize: 11, bold: true, height: 24, charsPerLine: 36, maxHeight: 54 })
+  setMergedRangeLine(sheet, 6, 'D', 'F', customer.attn, { fontSize: 11, bold: true, height: 20, charsPerLine: 36, maxHeight: 44 })
   setMergedRangeLine(sheet, 7, 'D', 'F', customer.address, { fontSize: 10, height: 26, charsPerLine: 44, maxHeight: 72 })
-  setFittedCell(sheet, 'D8', customer.tel, { baseSize: 10.5, minSize: 8, wrapAt: 34 })
+  setMergedRangeLine(sheet, 8, 'D', 'E', customer.tel, { fontSize: 10.5, bold: true, height: 20, charsPerLine: 32, maxHeight: 44 })
   setCell(sheet, 'H5', doc.no)
   setCell(sheet, 'H6', formatDate(doc.date))
   setCell(sheet, 'H7', doc.by)
@@ -499,7 +508,7 @@ function fillInvoice(sheet, payload, title) {
   rows.forEach((row, index) => {
     const excelRow = itemStartRow + index
     setCell(sheet, `B${excelRow}`, index + 1)
-    setMergedRangeLine(sheet, excelRow, 'C', 'D', row.description, { fontSize: 9, height: 22, charsPerLine: 48, maxHeight: 96 })
+    setMergedRangeLine(sheet, excelRow, 'C', 'D', row.description, { fontSize: 9, bold: true, height: 22, charsPerLine: 48, maxHeight: 96 })
     setCell(sheet, `E${excelRow}`, row.qty === null ? '***' : `${row.qty}KG`)
     setCell(sheet, `G${excelRow}`, row.unitPrice === null ? '***' : documentMoney(row.unitPrice))
     setCell(sheet, `I${excelRow}`, documentMoney(row.subtotal))
@@ -547,8 +556,9 @@ function fillInvoice(sheet, payload, title) {
   }
   setCell(sheet, `C${buyerRow - 1}`, 'The seller')
   setCell(sheet, `G${buyerRow - 1}`, 'The buyer')
-  setMergedRangeLine(sheet, buyerRow, 'C', 'F', companyProfile.name, { fontSize: 10, height: 24, charsPerLine: 44, maxHeight: 66 })
-  setMergedRangeLine(sheet, buyerRow, 'G', 'I', customer.buyer || customer.company, { fontSize: 10, height: 24, charsPerLine: 34, maxHeight: 66 })
+  setMergedRangeLine(sheet, buyerRow, 'C', 'F', companyProfile.name, { fontSize: 10, bold: true, height: 24, charsPerLine: 44, maxHeight: 66 })
+  setMergedRangeLine(sheet, buyerRow, 'G', 'I', customer.buyer || customer.company, { fontSize: 10, bold: true, height: 24, charsPerLine: 34, maxHeight: 66 })
+  normalizeSheetFonts(sheet, buyerRow + 2)
 }
 
 function buildRows(items, fees, totals) {
@@ -636,27 +646,35 @@ async function exportPdf(kind, payload) {
   pdf.setFontSize(18)
   pdf.addImage(logoDataUrl, 'PNG', 105, 48, 34, 34)
   pdf.text(companyProfile.name, 152, 68)
+  const headerAddressHeight = fitText(companyProfile.address, width / 2, 96, 520, {
+    size: 9.5,
+    minSize: 7.5,
+    align: 'center',
+    lineHeight: 1.08,
+  })
+  const contactY = 96 + Math.max(15, headerAddressHeight + 8)
   pdf.setFont('helvetica', 'normal')
   pdf.setFontSize(10.5)
-  pdf.text(companyProfile.address, width / 2, 96, { align: 'center' })
-  pdf.text(`Tel: ${companyProfile.tel}`, width * 0.36, 114, { align: 'center' })
-  pdf.text(`Fax: ${companyProfile.fax}`, width * 0.67, 114, { align: 'center' })
+  pdf.text(`Tel: ${companyProfile.tel}`, width * 0.36, contactY, { align: 'center' })
+  pdf.text(`Fax: ${companyProfile.fax}`, width * 0.67, contactY, { align: 'center' })
   pdf.setFont('helvetica', 'bold')
   pdf.setFontSize(15)
-  pdf.text(title, width / 2, 136, { align: 'center' })
+  const titleY = contactY + 24
+  pdf.text(title, width / 2, titleY, { align: 'center' })
 
   const noLabel = kind === 'CI' ? 'CI NO. :' : kind === 'PI' ? 'PI NO. :' : 'QUOTE NO. :'
-  let leftY = 160
+  let leftY = titleY + 24
   leftY += Math.max(24, compactLabelValue('Company:', customer.company, 40, leftY, 300, 12) + 10)
   leftY += Math.max(24, compactLabelValue('ATTN:', customer.attn, 40, leftY, 300, 12) + 10)
   leftY += Math.max(28, compactLabelValue('Add.', customer.address, 40, leftY, 300, 10.5) + 12)
   compactLabelValue('Tel:', customer.tel, 40, leftY, 300, 11)
-  labelValue(noLabel, doc.no, 315, 165, 70, 175, 12)
-  labelValue('Date:', formatDate(doc.date), 315, 192, 70, 175, 12)
-  labelValue('By:', doc.by, 315, 220, 70, 175, 12)
-  labelValue('From:', doc.from, 315, 250, 52, 90, 11)
-  labelValue('To', doc.to, 430, 250, 24, 105, 11)
-  const tableStartY = Math.max(262, leftY + 18)
+  const rightY = titleY + 29
+  labelValue(noLabel, doc.no, 315, rightY, 70, 175, 12)
+  labelValue('Date:', formatDate(doc.date), 315, rightY + 27, 70, 175, 12)
+  labelValue('By:', doc.by, 315, rightY + 55, 70, 175, 12)
+  labelValue('From:', doc.from, 315, rightY + 85, 52, 90, 11)
+  labelValue('To', doc.to, 430, rightY + 85, 24, 105, 11)
+  const tableStartY = Math.max(rightY + 103, leftY + 18)
 
   autoTable(pdf, {
     startY: tableStartY,
@@ -722,12 +740,25 @@ async function exportPdf(kind, payload) {
   const signY = hasBankInfo ? Math.max(535, bankEndY + 32) : Math.max(455, bankY + 42)
   pdf.setFont('helvetica', 'normal')
   pdf.setFontSize(11)
-  pdf.text('The seller', 55, signY)
-  pdf.text('The buyer', 385, signY)
-  pdf.text(companyProfile.name, 55, signY + 45)
-  pdf.line(55, signY + 49, 235, signY + 49)
-  fitText(customer.buyer || customer.company || '', 385, signY + 45, 170, { size: 11, minSize: 8 })
-  pdf.line(385, signY + 49, 555, signY + 49)
+  const sellerBox = { x: 45, width: 210 }
+  const buyerBox = { x: 340, width: 210 }
+  pdf.text('The seller', sellerBox.x + sellerBox.width / 2, signY, { align: 'center' })
+  pdf.text('The buyer', buyerBox.x + buyerBox.width / 2, signY, { align: 'center' })
+  const sellerTextHeight = fitText(companyProfile.name, sellerBox.x + sellerBox.width / 2, signY + 45, sellerBox.width, {
+    size: 10,
+    minSize: 8,
+    align: 'center',
+    lineHeight: 1.12,
+  })
+  const buyerTextHeight = fitText(customer.buyer || customer.company || '', buyerBox.x + buyerBox.width / 2, signY + 45, buyerBox.width, {
+    size: 10,
+    minSize: 7.5,
+    align: 'center',
+    lineHeight: 1.12,
+  })
+  const signatureLineY = signY + 52 + Math.max(sellerTextHeight, buyerTextHeight)
+  pdf.line(sellerBox.x, signatureLineY, sellerBox.x + sellerBox.width, signatureLineY)
+  pdf.line(buyerBox.x, signatureLineY, buyerBox.x + buyerBox.width, signatureLineY)
   pdf.setFontSize(10)
   pdf.text('Page  1  ,  Total  1  Pages', width / 2, 820, { align: 'center' })
 
