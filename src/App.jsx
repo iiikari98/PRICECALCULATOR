@@ -617,6 +617,7 @@ async function exportPdf(kind, payload) {
   }
 
   const labelValue = (label, value, x, y, labelWidth, valueWidth, valueSize = 12) => {
+    if (!value) return 0
     pdf.setFont('helvetica', 'bold')
     pdf.setFontSize(12)
     pdf.text(label, x + labelWidth, y, { align: 'right' })
@@ -650,11 +651,11 @@ async function exportPdf(kind, payload) {
   leftY += Math.max(24, compactLabelValue('ATTN:', customer.attn, 40, leftY, 300, 12) + 10)
   leftY += Math.max(28, compactLabelValue('Add.', customer.address, 40, leftY, 300, 10.5) + 12)
   compactLabelValue('Tel:', customer.tel, 40, leftY, 300, 11)
-  labelValue(noLabel, doc.no, 365, 165, 70, 130, 12)
-  labelValue('Date:', formatDate(doc.date), 365, 192, 70, 130, 12)
-  labelValue('By:', doc.by, 365, 220, 70, 130, 12)
-  labelValue('From:', doc.from, 350, 250, 52, 80, 11)
-  labelValue('To', doc.to, 455, 250, 30, 86, 11)
+  labelValue(noLabel, doc.no, 315, 165, 70, 175, 12)
+  labelValue('Date:', formatDate(doc.date), 315, 192, 70, 175, 12)
+  labelValue('By:', doc.by, 315, 220, 70, 175, 12)
+  labelValue('From:', doc.from, 315, 250, 52, 90, 11)
+  labelValue('To', doc.to, 430, 250, 24, 105, 11)
   const tableStartY = Math.max(262, leftY + 18)
 
   autoTable(pdf, {
