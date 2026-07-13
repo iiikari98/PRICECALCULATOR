@@ -310,19 +310,6 @@ function setCell(sheet, address, value) {
   return cell
 }
 
-function setFittedCell(sheet, address, value, { baseSize = 12, minSize = 8, wrapAt = 28 } = {}) {
-  const cell = setCell(sheet, address, value)
-  const text = String(value || '')
-  const shrinkSteps = Math.max(0, Math.ceil((text.length - wrapAt) / 12))
-  cell.font = { ...(cell.font || {}), name: 'Calibri', size: Math.max(minSize, baseSize - shrinkSteps) }
-  cell.alignment = {
-    ...(cell.alignment || {}),
-    wrapText: text.length > wrapAt,
-    vertical: cell.alignment?.vertical || 'center',
-  }
-  return cell
-}
-
 function adjustRowHeight(sheet, rowNumber, values, { baseHeight = 19, charsPerLine = 52, lineHeight = 12, maxHeight = 54 } = {}) {
   const longestLines = values
     .map((value) => String(value || '').split('\n').reduce((max, line) => Math.max(max, Math.ceil(line.length / charsPerLine)), 1))
@@ -456,14 +443,32 @@ function fillInvoice(sheet, payload, title) {
   const isPi = title === 'PROFORMA INVOICE'
   clearTemplateSampleData(sheet)
   const noLabel = title === 'COMMERCIAL INVOICE' ? 'CI NO. :' : title === 'PROFORMA INVOICE' ? 'PI NO. :' : 'QUOTE NO. :'
-  setFittedCell(sheet, 'A1', companyProfile.name, { baseSize: 16, minSize: 11, wrapAt: 42 })
-  setFittedCell(sheet, 'A2', companyProfile.address, { baseSize: 10, minSize: 7, wrapAt: 95 })
-  sheet.getRow(2).height = 34
+  safeUnmerge(sheet, 'A1:I1')
+  safeMerge(sheet, 'A1:I1')
+  safeUnmerge(sheet, 'A2:I2')
+  safeMerge(sheet, 'A2:I2')
+  const companyNameCell = setCell(sheet, 'A1', companyProfile.name)
+  companyNameCell.font = { ...(companyNameCell.font || {}), name: 'Calibri', size: 20, bold: true }
+  companyNameCell.alignment = { horizontal: 'center', vertical: 'center' }
+  const companyAddressCell = setCell(sheet, 'A2', companyProfile.address)
+  companyAddressCell.font = { ...(companyAddressCell.font || {}), name: 'Calibri', size: 10 }
+  companyAddressCell.alignment = { horizontal: 'center', vertical: 'center', wrapText: false }
+  sheet.getRow(1).height = 26.25
+  sheet.getRow(2).height = 18
+  setCell(sheet, 'D3', `Tel: ${companyProfile.tel}`)
+  setCell(sheet, 'E3', `Fax: ${companyProfile.fax}`)
+  ;['D3', 'E3'].forEach((address) => {
+    const cell = sheet.getCell(address)
+    cell.font = { ...(cell.font || {}), name: 'Calibri', size: 11, bold: false }
+    cell.alignment = { horizontal: 'center', vertical: 'center', wrapText: false }
+  })
+  sheet.getRow(3).height = 18
   safeUnmerge(sheet, 'A4:I4')
   safeMerge(sheet, 'A4:I4')
   const titleCell = setCell(sheet, 'A4', title)
-  titleCell.font = { ...(titleCell.font || {}), name: 'Calibri', size: 14, bold: true }
+  titleCell.font = { ...(titleCell.font || {}), name: 'Calibri', size: 16, bold: true, underline: true }
   titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
+  sheet.getRow(4).height = 21
   setCell(sheet, 'G5', noLabel)
   setMergedRangeLine(sheet, 5, 'D', 'F', customer.company, { fontSize: 11, height: 24, charsPerLine: 36, maxHeight: 54 })
   setMergedRangeLine(sheet, 6, 'D', 'F', customer.attn, { fontSize: 11, height: 20, charsPerLine: 36, maxHeight: 44 })
