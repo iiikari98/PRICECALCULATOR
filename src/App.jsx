@@ -471,9 +471,27 @@ function fillInvoice(sheet, payload, title) {
   setMergedRangeLine(sheet, 8, 'D', 'E', customer.tel, { fontSize: 10.5, wrap: false, height: 20 })
   setCell(sheet, 'H5', doc.no)
   setCell(sheet, 'H6', formatDate(doc.date))
-  setCell(sheet, 'H7', doc.by)
-  setCell(sheet, 'G8', doc.from)
-  setCell(sheet, 'I8', doc.to)
+  if (doc.by) {
+    setCell(sheet, 'G7', 'By:')
+    setCell(sheet, 'H7', doc.by)
+  } else {
+    setCell(sheet, 'G7', '')
+    setCell(sheet, 'H7', '')
+  }
+  if (doc.from) {
+    setCell(sheet, 'F8', 'From:                         ')
+    setCell(sheet, 'G8', doc.from)
+  } else {
+    setCell(sheet, 'F8', '')
+    setCell(sheet, 'G8', '')
+  }
+  if (doc.to) {
+    setCell(sheet, 'H8', 'To')
+    setCell(sheet, 'I8', doc.to)
+  } else {
+    setCell(sheet, 'H8', '')
+    setCell(sheet, 'I8', '')
+  }
   adjustRowHeight(sheet, 5, [customer.company], { baseHeight: 24, charsPerLine: 38, maxHeight: 42 })
   adjustRowHeight(sheet, 7, [customer.address], { baseHeight: 33, charsPerLine: 48, maxHeight: 58 })
 
