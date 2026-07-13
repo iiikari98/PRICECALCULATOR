@@ -452,9 +452,9 @@ function fillInvoice(sheet, payload, title) {
   companyNameCell.alignment = { horizontal: 'center', vertical: 'center' }
   const companyAddressCell = setCell(sheet, 'A2', companyProfile.address)
   companyAddressCell.font = { ...(companyAddressCell.font || {}), name: 'Calibri', size: 10 }
-  companyAddressCell.alignment = { horizontal: 'center', vertical: 'center', wrapText: false }
+  companyAddressCell.alignment = { horizontal: 'center', vertical: 'center', wrapText: true }
   sheet.getRow(1).height = 26.25
-  sheet.getRow(2).height = 18
+  adjustRowHeight(sheet, 2, [companyProfile.address], { baseHeight: 18, charsPerLine: 105, lineHeight: 14, maxHeight: 46 })
   setCell(sheet, 'D3', `Tel: ${companyProfile.tel}`)
   setCell(sheet, 'E3', `Fax: ${companyProfile.fax}`)
   ;['D3', 'E3'].forEach((address) => {
