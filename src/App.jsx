@@ -294,6 +294,16 @@ async function loadWorkbook(template) {
   return workbook
 }
 
+async function loadAssetDataUrl(path) {
+  const response = await fetch(path)
+  const blob = await response.blob()
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.readAsDataURL(blob)
+  })
+}
+
 function setCell(sheet, address, value) {
   const cell = sheet.getCell(address)
   cell.value = value
@@ -611,6 +621,7 @@ async function exportPdf(kind, payload) {
   const title = kind === 'PI' ? 'PROFORMA INVOICE' : kind === 'CI' ? 'COMMERCIAL INVOICE' : 'QUOTATION'
   const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
   const width = pdf.internal.pageSize.getWidth()
+  const logoDataUrl = await loadAssetDataUrl('/assets/logo-mark.png')
 
   const fitText = (text, x, y, maxWidth, { size = 12, minSize = 8, style = 'normal', align = 'left', lineHeight = 1.15 } = {}) => {
     const value = String(text || '')
@@ -634,49 +645,54 @@ async function exportPdf(kind, payload) {
     return fitText(value, x + labelWidth + 5, y, valueWidth, { size: valueSize, minSize: 8 })
   }
 
-  const alignedLabelValue = (label, value, x, y, labelWidth, valueWidth, valueSize = 12) => {
-    pdf.setFont('helvetica', 'bold')
-    pdf.setFontSize(12)
-    pdf.text(label, x + labelWidth, y, { align: 'right' })
-    return fitText(value, x + labelWidth + 6, y, valueWidth, { size: valueSize, minSize: 8 })
-  }
-
+  pdf.addImage(logoDataUrl, 'PNG', 112, 34, 30, 30)
   pdf.setFont('helvetica', 'bold')
   pdf.setFontSize(20)
-  pdf.text(companyProfile.name, width / 2, 58, { align: 'center' })
-  const headerAddressHeight = fitText(companyProfile.address, width / 2, 96, 520, {
-    size: 10,
+  pdf.text(companyProfile.name, width / 2, 55, { align: 'center' })
+  const headerAddressHeight = fitText(companyProfile.address, width / 2, 78, 520, {
+    size: 9,
     minSize: 7.5,
     align: 'center',
-    lineHeight: 1.08,
+    lineHeight: 1.05,
   })
-  const contactY = 96 + Math.max(15, headerAddressHeight + 8)
+  const contactY = 78 + Math.max(14, headerAddressHeight + 7)
   pdf.setFont('helvetica', 'normal')
-  pdf.setFontSize(10.5)
+  pdf.setFontSize(10)
   pdf.text(`Tel: ${companyProfile.tel}`, width * 0.36, contactY, { align: 'center' })
   pdf.text(`Fax: ${companyProfile.fax}`, width * 0.67, contactY, { align: 'center' })
   pdf.setFont('helvetica', 'bold')
-  pdf.setFontSize(15)
-  const titleY = contactY + 24
+  pdf.setFontSize(16)
+  const titleY = contactY + 20
   pdf.text(title, width / 2, titleY, { align: 'center' })
+  const titleWidth = pdf.getTextWidth(title)
+  pdf.line(width / 2 - titleWidth / 2, titleY + 3, width / 2 + titleWidth / 2, titleY + 3)
+
+  const drawTemplateField = (label, value, labelX, valueX, y, valueWidth, valueSize = 10.5) => {
+    if (!value) return 0
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(11)
+    pdf.text(label, labelX, y)
+    return fitText(value, valueX, y, valueWidth, { size: valueSize, minSize: 7.5, lineHeight: 1.08 })
+  }
 
   const noLabel = kind === 'CI' ? 'CI NO. :' : kind === 'PI' ? 'PI NO. :' : 'QUOTE NO. :'
-  let leftY = titleY + 24
-  leftY += Math.max(24, alignedLabelValue('Company:', customer.company, 22, leftY, 70, 300, 12) + 10)
-  leftY += Math.max(24, alignedLabelValue('ATTN:', customer.attn, 22, leftY, 70, 300, 12) + 10)
-  leftY += Math.max(28, alignedLabelValue('Add.', customer.address, 22, leftY, 70, 300, 10.5) + 12)
-  alignedLabelValue('Tel:', customer.tel, 22, leftY, 70, 300, 11)
-  const rightY = titleY + 29
-  labelValue(noLabel, doc.no, 315, rightY, 70, 175, 12)
-  labelValue('Date:', formatDate(doc.date), 315, rightY + 27, 70, 175, 12)
-  labelValue('By:', doc.by, 315, rightY + 55, 70, 175, 12)
-  labelValue('From:', doc.from, 315, rightY + 85, 52, 90, 11)
-  labelValue('To', doc.to, 430, rightY + 85, 24, 105, 11)
-  const tableStartY = Math.max(rightY + 103, leftY + 18)
+  let leftY = titleY + 22
+  const rightY = leftY
+  leftY += Math.max(20, drawTemplateField('Company:', customer.company, 42, 100, leftY, 245, 10.5) + 8)
+  leftY += Math.max(20, drawTemplateField('ATTN:', customer.attn, 42, 100, leftY, 245, 10.5) + 8)
+  leftY += Math.max(26, drawTemplateField('Add.', customer.address, 42, 100, leftY, 245, 9.5) + 10)
+  leftY += Math.max(18, drawTemplateField('Tel:', customer.tel, 42, 100, leftY, 245, 10) + 6)
+
+  labelValue(noLabel, doc.no, 350, rightY, 58, 145, 10.5)
+  labelValue('Date:', formatDate(doc.date), 350, rightY + 24, 58, 145, 10.5)
+  labelValue('By:', doc.by, 350, rightY + 48, 58, 145, 10.5)
+  labelValue('From:', doc.from, 338, rightY + 74, 45, 80, 10)
+  labelValue('To', doc.to, 448, rightY + 74, 22, 80, 10)
+  const tableStartY = Math.max(rightY + 92, leftY + 8)
 
   autoTable(pdf, {
     startY: tableStartY,
-    margin: { left: 20, right: 20 },
+    margin: { left: 32, right: 32 },
     head: [['Item', 'Description', 'QTY(KG)', 'Unit Price (USD)', 'Subtotal']],
     body: rows.map((row, index) => [
       index + 1,
@@ -701,10 +717,10 @@ async function exportPdf(kind, payload) {
     footStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'normal', halign: 'center' },
     columnStyles: {
       0: { cellWidth: 34, halign: 'center' },
-      1: { cellWidth: 260, halign: 'left' },
+      1: { cellWidth: 245, halign: 'left' },
       2: { cellWidth: 62, halign: 'center' },
       3: { cellWidth: 92, halign: 'center' },
-      4: { cellWidth: 98, halign: 'center' },
+      4: { cellWidth: 92, halign: 'center' },
     },
     didParseCell: (data) => {
       const text = Array.isArray(data.cell.text) ? data.cell.text.join(' ') : String(data.cell.text || '')
