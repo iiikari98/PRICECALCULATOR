@@ -71,6 +71,341 @@ const companyProfiles = {
 }
 const serialStorageKey = 'jdq-generated-document-nos'
 
+const isoCountryCodes = [
+  'AD',
+  'AE',
+  'AF',
+  'AG',
+  'AI',
+  'AL',
+  'AM',
+  'AO',
+  'AQ',
+  'AR',
+  'AS',
+  'AT',
+  'AU',
+  'AW',
+  'AX',
+  'AZ',
+  'BA',
+  'BB',
+  'BD',
+  'BE',
+  'BF',
+  'BG',
+  'BH',
+  'BI',
+  'BJ',
+  'BL',
+  'BM',
+  'BN',
+  'BO',
+  'BQ',
+  'BR',
+  'BS',
+  'BT',
+  'BV',
+  'BW',
+  'BY',
+  'BZ',
+  'CA',
+  'CC',
+  'CD',
+  'CF',
+  'CG',
+  'CH',
+  'CI',
+  'CK',
+  'CL',
+  'CM',
+  'CN',
+  'CO',
+  'CR',
+  'CU',
+  'CV',
+  'CW',
+  'CX',
+  'CY',
+  'CZ',
+  'DE',
+  'DJ',
+  'DK',
+  'DM',
+  'DO',
+  'DZ',
+  'EC',
+  'EE',
+  'EG',
+  'EH',
+  'ER',
+  'ES',
+  'ET',
+  'FI',
+  'FJ',
+  'FK',
+  'FM',
+  'FO',
+  'FR',
+  'GA',
+  'GB',
+  'GD',
+  'GE',
+  'GF',
+  'GG',
+  'GH',
+  'GI',
+  'GL',
+  'GM',
+  'GN',
+  'GP',
+  'GQ',
+  'GR',
+  'GS',
+  'GT',
+  'GU',
+  'GW',
+  'GY',
+  'HK',
+  'HM',
+  'HN',
+  'HR',
+  'HT',
+  'HU',
+  'ID',
+  'IE',
+  'IL',
+  'IM',
+  'IN',
+  'IO',
+  'IQ',
+  'IR',
+  'IS',
+  'IT',
+  'JE',
+  'JM',
+  'JO',
+  'JP',
+  'KE',
+  'KG',
+  'KH',
+  'KI',
+  'KM',
+  'KN',
+  'KP',
+  'KR',
+  'KW',
+  'KY',
+  'KZ',
+  'LA',
+  'LB',
+  'LC',
+  'LI',
+  'LK',
+  'LR',
+  'LS',
+  'LT',
+  'LU',
+  'LV',
+  'LY',
+  'MA',
+  'MC',
+  'MD',
+  'ME',
+  'MF',
+  'MG',
+  'MH',
+  'MK',
+  'ML',
+  'MM',
+  'MN',
+  'MO',
+  'MP',
+  'MQ',
+  'MR',
+  'MS',
+  'MT',
+  'MU',
+  'MV',
+  'MW',
+  'MX',
+  'MY',
+  'MZ',
+  'NA',
+  'NC',
+  'NE',
+  'NF',
+  'NG',
+  'NI',
+  'NL',
+  'NO',
+  'NP',
+  'NR',
+  'NU',
+  'NZ',
+  'OM',
+  'PA',
+  'PE',
+  'PF',
+  'PG',
+  'PH',
+  'PK',
+  'PL',
+  'PM',
+  'PN',
+  'PR',
+  'PS',
+  'PT',
+  'PW',
+  'PY',
+  'QA',
+  'RE',
+  'RO',
+  'RS',
+  'RU',
+  'RW',
+  'SA',
+  'SB',
+  'SC',
+  'SD',
+  'SE',
+  'SG',
+  'SH',
+  'SI',
+  'SJ',
+  'SK',
+  'SL',
+  'SM',
+  'SN',
+  'SO',
+  'SR',
+  'SS',
+  'ST',
+  'SV',
+  'SX',
+  'SY',
+  'SZ',
+  'TC',
+  'TD',
+  'TF',
+  'TG',
+  'TH',
+  'TJ',
+  'TK',
+  'TL',
+  'TM',
+  'TN',
+  'TO',
+  'TR',
+  'TT',
+  'TV',
+  'TW',
+  'TZ',
+  'UA',
+  'UG',
+  'UM',
+  'US',
+  'UY',
+  'UZ',
+  'VA',
+  'VC',
+  'VE',
+  'VG',
+  'VI',
+  'VN',
+  'VU',
+  'WF',
+  'WS',
+  'YE',
+  'YT',
+  'ZA',
+  'ZM',
+  'ZW',
+]
+
+const countryAliases = {
+  巴西: 'BR',
+  巴西联邦共和国: 'BR',
+  美国: 'US',
+  美利坚: 'US',
+  美利坚合众国: 'US',
+  德国: 'DE',
+  德意志: 'DE',
+  印度: 'IN',
+  印度尼西亚: 'ID',
+  印尼: 'ID',
+  越南: 'VN',
+  泰国: 'TH',
+  马来西亚: 'MY',
+  土耳其: 'TR',
+  墨西哥: 'MX',
+  加拿大: 'CA',
+  英国: 'GB',
+  法国: 'FR',
+  意大利: 'IT',
+  西班牙: 'ES',
+  葡萄牙: 'PT',
+  荷兰: 'NL',
+  波兰: 'PL',
+  俄罗斯: 'RU',
+  韩国: 'KR',
+  日本: 'JP',
+  澳大利亚: 'AU',
+  新西兰: 'NZ',
+  南非: 'ZA',
+  沙特: 'SA',
+  沙特阿拉伯: 'SA',
+  阿联酋: 'AE',
+  阿拉伯联合酋长国: 'AE',
+  埃及: 'EG',
+  尼日利亚: 'NG',
+  肯尼亚: 'KE',
+  哥伦比亚: 'CO',
+  智利: 'CL',
+  秘鲁: 'PE',
+  阿根廷: 'AR',
+}
+
+function normalizeCountryName(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/\b(the|of|and)\b/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+    .trim()
+}
+
+function countryCodeFromName(value) {
+  const input = String(value || '').trim()
+  if (!input) return ''
+  const upper = input.toUpperCase()
+  if (/^[A-Z]{2}$/.test(upper) && isoCountryCodes.includes(upper)) return upper
+  if (countryAliases[input]) return countryAliases[input]
+
+  const normalized = normalizeCountryName(input)
+  const normalizedAlias = Object.entries(countryAliases).find(([name]) => normalizeCountryName(name) === normalized)
+  if (normalizedAlias) return normalizedAlias[1]
+  const containedAlias = Object.entries(countryAliases).find(([name]) => {
+    const alias = normalizeCountryName(name)
+    return alias && normalized.includes(alias)
+  })
+  if (containedAlias) return containedAlias[1]
+
+  const displayNames = []
+  if (typeof Intl !== 'undefined' && Intl.DisplayNames) {
+    displayNames.push(new Intl.DisplayNames(['en'], { type: 'region' }))
+    displayNames.push(new Intl.DisplayNames(['zh-CN'], { type: 'region' }))
+  }
+
+  for (const code of isoCountryCodes) {
+    for (const displayName of displayNames) {
+      const countryName = normalizeCountryName(displayName.of(code))
+      if (countryName === normalized || normalized.includes(countryName)) return code
+    }
+  }
+  return ''
+}
+
 const blankItem = () => ({
   id: crypto.randomUUID(),
   description: '',
@@ -95,6 +430,7 @@ const defaultDoc = {
   by: '',
   customerType: 'company',
   documentSeq: '',
+  customerCountry: '',
   countryCode: '',
   customerCode: '',
   customerOrderSeq: '',
@@ -307,6 +643,23 @@ async function loadAssetDataUrl(path) {
 async function loadAssetBuffer(path) {
   const response = await fetch(path)
   return response.arrayBuffer()
+}
+
+async function loadAssetBase64(path) {
+  const buffer = await loadAssetBuffer(path)
+  let binary = ''
+  new Uint8Array(buffer).forEach((byte) => {
+    binary += String.fromCharCode(byte)
+  })
+  return btoa(binary)
+}
+
+async function registerPdfFonts(pdf) {
+  const [regular, bold] = await Promise.all([loadAssetBase64('/assets/segoeui.ttf'), loadAssetBase64('/assets/segoeuib.ttf')])
+  pdf.addFileToVFS('segoeui.ttf', regular)
+  pdf.addFileToVFS('segoeuib.ttf', bold)
+  pdf.addFont('segoeui.ttf', 'SegoeEmbedded', 'normal')
+  pdf.addFont('segoeuib.ttf', 'SegoeEmbedded', 'bold')
 }
 
 function setCell(sheet, address, value) {
@@ -554,13 +907,20 @@ async function exportPdf(kind, payload) {
   const { customer, doc, rows, totals, companyProfile } = payload
   const title = kind === 'PI' ? 'PROFORMA INVOICE' : kind === 'CI' ? 'COMMERCIAL INVOICE' : 'QUOTATION'
   const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
+  await registerPdfFonts(pdf)
   const width = pdf.internal.pageSize.getWidth()
   const logoDataUrl = await loadAssetDataUrl('/assets/logo-mark.png')
+  const ink = [24, 30, 27]
+  const brand = [0, 128, 113]
+  const brandDark = [0, 95, 84]
+  const brandSoft = [232, 246, 242]
+  const border = [31, 77, 70]
+  const cleanPdfText = (value) => String(value || '').replace(/\s+/g, ' ').trim()
 
   const fitText = (text, x, y, maxWidth, { size = 12, minSize = 8, style = 'normal', align = 'left', lineHeight = 1.15 } = {}) => {
-    const value = String(text || '')
+    const value = cleanPdfText(text)
     let currentSize = size
-    pdf.setFont('helvetica', style)
+    pdf.setFont('SegoeEmbedded', style)
     pdf.setFontSize(currentSize)
     while (currentSize > minSize && pdf.getTextWidth(value) > maxWidth) {
       currentSize -= 0.5
@@ -572,36 +932,45 @@ async function exportPdf(kind, payload) {
   }
 
   const labelValue = (label, value, x, y, labelWidth, valueWidth, valueSize = 12) => {
-    pdf.setFont('helvetica', 'bold')
+    pdf.setTextColor(...ink)
+    pdf.setFont('SegoeEmbedded', 'bold')
     pdf.setFontSize(12)
     pdf.text(label, x + labelWidth, y, { align: 'right' })
     return fitText(value, x + labelWidth + 5, y, valueWidth, { size: valueSize, minSize: 8 })
   }
 
-  pdf.setFont('helvetica', 'bold')
+  pdf.setTextColor(...ink)
+  pdf.setFont('SegoeEmbedded', 'bold')
   pdf.setFontSize(18)
   pdf.addImage(logoDataUrl, 'PNG', 105, 48, 34, 34)
   pdf.text(companyProfile.name, 152, 68)
-  pdf.setFont('helvetica', 'normal')
+  pdf.setFont('SegoeEmbedded', 'normal')
+  const addressHeight = fitText(companyProfile.address, width / 2, 94, 535, { size: 9.5, minSize: 8, align: 'center', lineHeight: 1.08 })
+  const contactY = Math.max(114, 94 + addressHeight + 8)
   pdf.setFontSize(10.5)
-  pdf.text(companyProfile.address, width / 2, 96, { align: 'center' })
-  pdf.text(`Tel: ${companyProfile.tel}`, width * 0.36, 114, { align: 'center' })
-  pdf.text(`Fax: ${companyProfile.fax}`, width * 0.67, 114, { align: 'center' })
-  pdf.setFont('helvetica', 'bold')
+  pdf.text(cleanPdfText(`Tel: ${companyProfile.tel}`), width * 0.36, contactY, { align: 'center' })
+  pdf.text(cleanPdfText(`Fax: ${companyProfile.fax}`), width * 0.67, contactY, { align: 'center' })
+  pdf.setTextColor(...brandDark)
+  pdf.setFont('SegoeEmbedded', 'bold')
   pdf.setFontSize(15)
-  pdf.text(title, width / 2, 136, { align: 'center' })
+  const titleY = contactY + 22
+  pdf.text(title, width / 2, titleY, { align: 'center' })
+  pdf.setDrawColor(...brand)
+  pdf.setLineWidth(0.8)
+  pdf.line(40, titleY + 9, width - 40, titleY + 9)
 
   const noLabel = kind === 'CI' ? 'CI NO. :' : kind === 'PI' ? 'PI NO. :' : 'QUOTE NO. :'
-  let leftY = 160
+  let leftY = titleY + 24
   leftY += Math.max(24, labelValue('Company:', customer.company, 40, leftY, 58, 250, 12) + 10)
   leftY += Math.max(24, labelValue('ATTN:', customer.attn, 40, leftY, 58, 250, 12) + 10)
   leftY += Math.max(28, labelValue('Add.', customer.address, 40, leftY, 58, 245, 10.5) + 12)
   labelValue('Tel:', customer.tel, 40, leftY, 58, 250, 11)
-  labelValue(noLabel, doc.no, 365, 165, 70, 130, 12)
-  labelValue('Date:', formatDate(doc.date), 365, 192, 70, 130, 12)
-  labelValue('By:', doc.by, 365, 220, 70, 130, 12)
-  labelValue('From:', doc.from, 350, 250, 52, 80, 11)
-  labelValue('To', doc.to, 455, 250, 30, 86, 11)
+  const infoY = titleY + 29
+  labelValue(noLabel, doc.no, 365, infoY, 70, 130, 12)
+  labelValue('Date:', formatDate(doc.date), 365, infoY + 27, 70, 130, 12)
+  labelValue('By:', doc.by, 365, infoY + 55, 70, 130, 12)
+  labelValue('From:', doc.from, 350, infoY + 85, 52, 80, 11)
+  labelValue('To', doc.to, 455, infoY + 85, 30, 86, 11)
   const tableStartY = Math.max(262, leftY + 18)
 
   autoTable(pdf, {
@@ -618,17 +987,17 @@ async function exportPdf(kind, payload) {
     foot: [['', '', '', '', documentMoney(totals.grand)]],
     theme: 'grid',
     styles: {
-      font: 'helvetica',
+      font: 'SegoeEmbedded',
       fontSize: 9,
       cellPadding: { top: 5, right: 3, bottom: 5, left: 3 },
-      lineColor: [0, 0, 0],
-      lineWidth: 0.75,
-      textColor: [0, 0, 0],
+      lineColor: border,
+      lineWidth: 0.55,
+      textColor: ink,
       valign: 'middle',
       overflow: 'linebreak',
     },
-    headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold', halign: 'center' },
-    footStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'normal', halign: 'center' },
+    headStyles: { fillColor: brandSoft, textColor: brandDark, fontStyle: 'bold', halign: 'center' },
+    footStyles: { fillColor: [255, 255, 255], textColor: ink, fontStyle: 'bold', halign: 'center' },
     columnStyles: {
       0: { cellWidth: 34, halign: 'center' },
       1: { cellWidth: 260, halign: 'left' },
@@ -645,22 +1014,37 @@ async function exportPdf(kind, payload) {
 
   const hasBankInfo = kind === 'PI' && Boolean(companyProfile.bank.accountNo || companyProfile.bank.bankName || companyProfile.bank.swift)
   const bankY = pdf.lastAutoTable.finalY + 22
+  let bankEndY = bankY
   if (hasBankInfo) {
-    pdf.setFont('helvetica', 'bold')
+    pdf.setTextColor(...brandDark)
+    pdf.setFont('SegoeEmbedded', 'bold')
     pdf.setFontSize(9)
     pdf.text('BANK ACCOUNT:', 40, bankY)
-    pdf.setFont('helvetica', 'normal')
-    pdf.setFontSize(8.5)
-    pdf.text(`Beneficiary Name :   ${companyProfile.name.toUpperCase()}`, 40, bankY + 14)
-    pdf.text(`Address of Beneficiary :   ${companyProfile.address}`, 40, bankY + 28)
-    pdf.text(`Beneficiary Account No. :  ${companyProfile.bank.accountNo || ''}`, 40, bankY + 42)
-    pdf.text(`Beneficiary bank:  ${companyProfile.bank.bankName || ''}`, 40, bankY + 56)
-    pdf.text(`SWIFT Code:  ${companyProfile.bank.swift || ''}`, 40, bankY + 70)
-    pdf.text(`Bank Address:  ${companyProfile.bank.bankAddress || ''}`, 40, bankY + 84)
+    let cursorY = bankY + 14
+    const cleanBankText = (value) => String(value || '').replace(/\s+/g, ' ').trim()
+    const bankLine = (label, value) => {
+      const valueLines = pdf.splitTextToSize(cleanBankText(value), 385)
+      pdf.setTextColor(...ink)
+      pdf.setFont('SegoeEmbedded', 'bold')
+      pdf.setFontSize(8.5)
+      pdf.text(label, 40, cursorY)
+      pdf.setFont('SegoeEmbedded', 'normal')
+      pdf.setFontSize(8.5)
+      pdf.text(valueLines, 160, cursorY, { lineHeightFactor: 1.12 })
+      cursorY += Math.max(14, valueLines.length * 10.5)
+    }
+    bankLine('Beneficiary Name:', companyProfile.name.toUpperCase())
+    bankLine('Address of Beneficiary:', companyProfile.address)
+    bankLine('Beneficiary Account No.:', companyProfile.bank.accountNo || '')
+    bankLine('Beneficiary bank:', companyProfile.bank.bankName || '')
+    bankLine('SWIFT Code:', companyProfile.bank.swift || '')
+    bankLine('Bank Address:', companyProfile.bank.bankAddress || '')
+    bankEndY = cursorY
   }
 
-  const signY = hasBankInfo ? Math.max(535, bankY + 120) : Math.max(455, bankY + 42)
-  pdf.setFont('helvetica', 'normal')
+  const signY = hasBankInfo ? Math.max(535, bankEndY + 34) : Math.max(455, bankY + 42)
+  pdf.setTextColor(...ink)
+  pdf.setFont('SegoeEmbedded', 'normal')
   pdf.setFontSize(11)
   pdf.text('The seller', 55, signY)
   pdf.text('The buyer', 385, signY)
@@ -781,15 +1165,30 @@ function App() {
 
   const updateCustomer = (key, value) => setCustomer((current) => ({ ...current, [key]: value }))
   const updateDoc = (key, value) => setDoc((current) => ({ ...current, [key]: value }))
+  const updateSerialDoc = (key, value) => setDoc((current) => ({ ...current, [key]: value, no: '' }))
+  const updateCustomerCountry = (value) =>
+    setDoc((current) => {
+      const countryCode = countryCodeFromName(value)
+      return { ...current, customerCountry: value, countryCode: countryCode || current.countryCode, no: '' }
+    })
   const updateFees = (key, value) => setFees((current) => ({ ...current, [key]: value }))
   const updateItem = (id, key, value) =>
     setItems((current) => current.map((item) => (item.id === id ? { ...item, [key]: value } : item)))
   const generatedCustomerCode = suggestCustomerCode(customer, doc.customerType)
   const activeCustomerCode = doc.customerCode || generatedCustomerCode
   const generatedDocNo = buildDocumentNo({ ...doc, customerCode: activeCustomerCode }, customer)
-  const docNoLooksAuto = /^ALL\d{8}(?:-[A-Z]{2}[A-Z0-9]{1,4}\d{2})?$/i.test(doc.no)
-  const activeDocNo = !doc.no || docNoLooksAuto ? generatedDocNo : doc.no
-  const isDuplicateNo = generatedNos.includes(activeDocNo)
+  const activeDocNo = doc.no
+  const canGenerateDocNo = Boolean(doc.date && doc.documentSeq && doc.countryCode && activeCustomerCode && doc.customerOrderSeq)
+  const isDuplicateNo = Boolean(activeDocNo && generatedNos.includes(activeDocNo))
+
+  const generateDocumentNo = () => {
+    if (!canGenerateDocNo) {
+      setStatus('请先填写单据流水号、客户国家/国家代码、客户编码和该客户第几次订单')
+      return
+    }
+    updateDoc('no', generatedDocNo)
+    setStatus('单号已生成')
+  }
 
   const resetForm = () => {
     setCustomer(defaultCustomer)
@@ -808,6 +1207,10 @@ function App() {
   }
 
   const _exportDocument = async (kind) => {
+    if (!activeDocNo) {
+      setStatus('请先生成单号')
+      return
+    }
     setStatus(`正在生成 ${kind} Excel...`)
     const isCi = kind === 'CI'
     const template = isCi ? 'commercial-invoice-template.xlsx' : 'proforma-invoice-template.xlsx'
@@ -831,6 +1234,10 @@ function App() {
   }
 
   const exportDocumentPdf = async (kind) => {
+    if (!activeDocNo) {
+      setStatus('请先生成单号')
+      return
+    }
     setStatus(`正在生成 ${kind} PDF...`)
     await exportPdf(kind, {
       ...payload,
@@ -886,25 +1293,25 @@ function App() {
               ))}
             </select>
           </label>
-          <Input label="Date" type="date" value={doc.date} onChange={(value) => updateDoc('date', value)} />
+          <Input label="Date" type="date" value={doc.date} onChange={(value) => updateSerialDoc('date', value)} />
           <Input
             label="单据流水号"
             type="number"
             value={doc.documentSeq}
-            placeholder="01"
-            onChange={(value) => updateDoc('documentSeq', value)}
+            placeholder=""
+            onChange={(value) => updateSerialDoc('documentSeq', value)}
           />
           <div className="serial-box">
             <div className="serial-preview">
-              <span>自动单号</span>
-              <strong>{generatedDocNo}</strong>
+              <span>单号状态</span>
+              <strong>{activeDocNo || '未生成'}</strong>
             </div>
-            <button type="button" className="small-button" onClick={() => updateDoc('no', generatedDocNo)}>
-              填入单号
+            <button type="button" className="small-button" onClick={generateDocumentNo} disabled={!canGenerateDocNo}>
+              生成单号
             </button>
           </div>
           {isDuplicateNo && <p className="duplicate-warning">这个单号已在本机生成过，请调整单据流水号。</p>}
-          <Input label="PI / Quote No." value={activeDocNo} onChange={(value) => updateDoc('no', value)} />
+          {activeDocNo && <Input label="PI / Quote No." value={activeDocNo} onChange={(value) => updateDoc('no', value)} />}
           <label className="field">
             <span>客户类型</span>
             <select value={doc.customerType} onChange={(event) => updateDoc('customerType', event.target.value)}>
@@ -912,26 +1319,32 @@ function App() {
               <option value="personal">个人采购</option>
             </select>
           </label>
+          <Input
+            label="客户国家"
+            value={doc.customerCountry}
+            placeholder=""
+            onChange={updateCustomerCountry}
+          />
           <div className="two-col">
             <Input
               label="国家代码"
               value={doc.countryCode}
-              placeholder="IT"
-              onChange={(value) => updateDoc('countryCode', value.toUpperCase().slice(0, 2))}
+              placeholder=""
+              onChange={(value) => updateSerialDoc('countryCode', value.toUpperCase().slice(0, 2))}
             />
             <Input
               label="客户编码"
               value={activeCustomerCode}
-              placeholder={generatedCustomerCode || 'ABC'}
-              onChange={(value) => updateDoc('customerCode', value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4))}
+              placeholder=""
+              onChange={(value) => updateSerialDoc('customerCode', value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4))}
             />
           </div>
           <Input
             label="该客户第几次订单"
             type="number"
             value={doc.customerOrderSeq}
-            placeholder="02"
-            onChange={(value) => updateDoc('customerOrderSeq', value)}
+            placeholder=""
+            onChange={(value) => updateSerialDoc('customerOrderSeq', value)}
           />
           <div className="two-col">
             <Input label="By" value={doc.by} onChange={(value) => updateDoc('by', value)} />

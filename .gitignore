@@ -11,6 +11,8 @@ node_modules
 dist
 dist-ssr
 *.local
+报价计算器_离线浏览器版/
+报价计算器_离线浏览器版.zip
 
 # Editor directories and files
 .vscode/*
