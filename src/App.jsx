@@ -335,6 +335,19 @@ function adjustRowHeight(sheet, rowNumber, values, { baseHeight = 19, charsPerLi
   sheet.getRow(rowNumber).height = Math.min(maxHeight, Math.max(baseHeight, longestLines * lineHeight + 7))
 }
 
+function setWrappedLine(sheet, address, value, { fontSize = 9, charsPerLine = 92, baseHeight = 18, lineHeight = 13, maxHeight = 58 } = {}) {
+  const cell = setCell(sheet, address, value)
+  cell.font = { ...(cell.font || {}), size: fontSize }
+  cell.alignment = {
+    ...(cell.alignment || {}),
+    wrapText: true,
+    vertical: 'top',
+  }
+  const rowNumber = Number(address.match(/\d+/)?.[0] || 1)
+  adjustRowHeight(sheet, rowNumber, [value], { baseHeight, charsPerLine, lineHeight, maxHeight })
+  return cell
+}
+
 function copyStyle(from, to) {
   to.style = JSON.parse(JSON.stringify(from.style || {}))
   to.numFmt = from.numFmt
@@ -482,11 +495,11 @@ function fillInvoice(sheet, payload, title) {
   if (isPi && hasBankInfo) {
     setCell(sheet, `B${bankRow}`, 'BANK ACCOUNT:')
     setCell(sheet, `B${bankRow + 1}`, `Beneficiary Name :   ${companyProfile.name.toUpperCase()}`)
-    setCell(sheet, `B${bankRow + 2}`, `Address of Beneficiary :   ${companyProfile.address}`)
+    setWrappedLine(sheet, `B${bankRow + 2}`, `Address of Beneficiary :   ${companyProfile.address}`)
     setCell(sheet, `B${bankRow + 3}`, `Beneficiary Account No. :  ${companyProfile.bank.accountNo || ''}`)
     setCell(sheet, `B${bankRow + 4}`, `Beneficiary bank:  ${companyProfile.bank.bankName || ''}`)
     setCell(sheet, `B${bankRow + 5}`, `SWIFT Code:  ${companyProfile.bank.swift || ''}`)
-    setCell(sheet, `B${bankRow + 6}`, `Bank Address:  ${companyProfile.bank.bankAddress || ''}`)
+    setWrappedLine(sheet, `B${bankRow + 6}`, `Bank Address:  ${companyProfile.bank.bankAddress || ''}`)
   }
 
   let buyerRow = isPi && hasBankInfo ? bankRow + 9 : totalRow + 5
