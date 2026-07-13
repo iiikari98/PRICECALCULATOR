@@ -74,6 +74,7 @@ const serialStorageKey = 'jdq-generated-document-nos'
 const blankItem = () => ({
   id: crypto.randomUUID(),
   description: '',
+  hsCode: '',
   qty: '',
   unitPrice: '',
   currency: 'USD',
@@ -264,6 +265,13 @@ function buildDocumentNo(doc, customer) {
     customerCode,
     customerOrderSeq,
   ].join('')
+}
+
+function formatItemDescription(item) {
+  const description = String(item.description || '').trim()
+  const hsCode = String(item.hsCode || '').trim()
+  if (!hsCode) return description
+  return description ? `${description}\nHS Code: ${hsCode}` : `HS Code: ${hsCode}`
 }
 
 function readGeneratedNos() {
@@ -501,11 +509,11 @@ function fillInvoice(sheet, payload, title) {
 function buildRows(items, fees, totals) {
   const rule = termRules[fees.incoterm]
   const goods = items
-    .filter((item) => item.description || num(item.qty) || num(item.unitPrice))
+    .filter((item) => item.description || item.hsCode || num(item.qty) || num(item.unitPrice))
     .map((item) => {
       const unitPriceUsd = toUsd(item.unitPrice, item.currency, fees.exchangeRate)
       return {
-        description: item.description,
+        description: formatItemDescription(item),
         qty: num(item.qty),
         unitPrice: unitPriceUsd,
         subtotal: num(item.qty) * unitPriceUsd,
@@ -944,6 +952,7 @@ function App() {
           <div className="item-table" role="table" aria-label="货品明细">
             <div className="table-head" role="row">
               <span>Description</span>
+              <span>HS CODE</span>
               <span>QTY(KG)</span>
               <span>Unit Price</span>
               <span>币种</span>
@@ -956,6 +965,11 @@ function App() {
                   value={item.description}
                   placeholder="输入产品描述"
                   onChange={(event) => updateItem(item.id, 'description', event.target.value)}
+                />
+                <input
+                  value={item.hsCode ?? ''}
+                  placeholder="HS CODE"
+                  onChange={(event) => updateItem(item.id, 'hsCode', event.target.value)}
                 />
                 <input
                   type="number"
