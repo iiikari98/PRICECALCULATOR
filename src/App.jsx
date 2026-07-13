@@ -304,11 +304,6 @@ async function loadAssetDataUrl(path) {
   })
 }
 
-async function loadAssetBuffer(path) {
-  const response = await fetch(path)
-  return response.arrayBuffer()
-}
-
 function setCell(sheet, address, value) {
   const cell = sheet.getCell(address)
   cell.value = value
@@ -422,13 +417,6 @@ function safeMerge(sheet, range) {
   } catch {
     // The template may already have this range merged.
   }
-}
-
-function addSheetLogo(workbook, sheet) {
-  return loadAssetBuffer('/assets/logo-mark.png').then((buffer) => {
-    const logoId = workbook.addImage({ buffer, extension: 'png' })
-    sheet.addImage(logoId, 'B1:C3')
-  })
 }
 
 function clearTemplateSampleData(sheet) {
@@ -913,7 +901,6 @@ function App() {
       },
       title,
     )
-    await addSheetLogo(workbook, sheet)
     const cleanNo = activeDocNo.replace(/[^\w-]/g, '') || `${kind}-${doc.date || new Date().toISOString().slice(0, 10)}`
     await downloadWorkbook(workbook, `${cleanNo}-${kind}.xlsx`)
     rememberNo()
