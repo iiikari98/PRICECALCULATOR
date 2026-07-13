@@ -623,6 +623,14 @@ async function exportPdf(kind, payload) {
     return fitText(value, x + labelWidth + 5, y, valueWidth, { size: valueSize, minSize: 8 })
   }
 
+  const compactLabelValue = (label, value, x, y, valueWidth, valueSize = 12) => {
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(12)
+    pdf.text(label, x, y)
+    const labelGap = pdf.getTextWidth(label) + 5
+    return fitText(value, x + labelGap, y, valueWidth - labelGap, { size: valueSize, minSize: 8 })
+  }
+
   pdf.setFont('helvetica', 'bold')
   pdf.setFontSize(18)
   pdf.addImage(logoDataUrl, 'PNG', 105, 48, 34, 34)
@@ -638,10 +646,10 @@ async function exportPdf(kind, payload) {
 
   const noLabel = kind === 'CI' ? 'CI NO. :' : kind === 'PI' ? 'PI NO. :' : 'QUOTE NO. :'
   let leftY = 160
-  leftY += Math.max(24, labelValue('Company:', customer.company, 40, leftY, 58, 250, 12) + 10)
-  leftY += Math.max(24, labelValue('ATTN:', customer.attn, 40, leftY, 58, 250, 12) + 10)
-  leftY += Math.max(28, labelValue('Add.', customer.address, 40, leftY, 58, 245, 10.5) + 12)
-  labelValue('Tel:', customer.tel, 40, leftY, 58, 250, 11)
+  leftY += Math.max(24, compactLabelValue('Company:', customer.company, 40, leftY, 300, 12) + 10)
+  leftY += Math.max(24, compactLabelValue('ATTN:', customer.attn, 40, leftY, 300, 12) + 10)
+  leftY += Math.max(28, compactLabelValue('Add.', customer.address, 40, leftY, 300, 10.5) + 12)
+  compactLabelValue('Tel:', customer.tel, 40, leftY, 300, 11)
   labelValue(noLabel, doc.no, 365, 165, 70, 130, 12)
   labelValue('Date:', formatDate(doc.date), 365, 192, 70, 130, 12)
   labelValue('By:', doc.by, 365, 220, 70, 130, 12)
