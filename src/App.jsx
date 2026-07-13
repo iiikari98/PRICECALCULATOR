@@ -477,10 +477,10 @@ function fillInvoice(sheet, payload, title) {
   titleCell.font = { ...(titleCell.font || {}), name: 'Calibri', size: 14, bold: true }
   titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
   setCell(sheet, 'G5', noLabel)
-  setMergedRangeLine(sheet, 5, 'D', 'F', customer.company, { fontSize: 11, bold: true, height: 24, charsPerLine: 36, maxHeight: 54 })
-  setMergedRangeLine(sheet, 6, 'D', 'F', customer.attn, { fontSize: 11, bold: true, height: 20, charsPerLine: 36, maxHeight: 44 })
+  setMergedRangeLine(sheet, 5, 'D', 'F', customer.company, { fontSize: 11, height: 24, charsPerLine: 36, maxHeight: 54 })
+  setMergedRangeLine(sheet, 6, 'D', 'F', customer.attn, { fontSize: 11, height: 20, charsPerLine: 36, maxHeight: 44 })
   setMergedRangeLine(sheet, 7, 'D', 'F', customer.address, { fontSize: 10, height: 26, charsPerLine: 44, maxHeight: 72 })
-  setMergedRangeLine(sheet, 8, 'D', 'E', customer.tel, { fontSize: 10.5, bold: true, height: 20, charsPerLine: 32, maxHeight: 44 })
+  setMergedRangeLine(sheet, 8, 'D', 'E', customer.tel, { fontSize: 10.5, height: 20, charsPerLine: 32, maxHeight: 44 })
   setCell(sheet, 'H5', doc.no)
   setCell(sheet, 'H6', formatDate(doc.date))
   setCell(sheet, 'H7', doc.by)
@@ -508,7 +508,7 @@ function fillInvoice(sheet, payload, title) {
   rows.forEach((row, index) => {
     const excelRow = itemStartRow + index
     setCell(sheet, `B${excelRow}`, index + 1)
-    setMergedRangeLine(sheet, excelRow, 'C', 'D', row.description, { fontSize: 9, bold: true, height: 22, charsPerLine: 48, maxHeight: 96 })
+    setMergedRangeLine(sheet, excelRow, 'C', 'D', row.description, { fontSize: 9, height: 22, charsPerLine: 48, maxHeight: 96 })
     setCell(sheet, `E${excelRow}`, row.qty === null ? '***' : `${row.qty}KG`)
     setCell(sheet, `G${excelRow}`, row.unitPrice === null ? '***' : documentMoney(row.unitPrice))
     setCell(sheet, `I${excelRow}`, documentMoney(row.subtotal))
@@ -634,12 +634,11 @@ async function exportPdf(kind, payload) {
     return fitText(value, x + labelWidth + 5, y, valueWidth, { size: valueSize, minSize: 8 })
   }
 
-  const compactLabelValue = (label, value, x, y, valueWidth, valueSize = 12) => {
+  const alignedLabelValue = (label, value, x, y, labelWidth, valueWidth, valueSize = 12) => {
     pdf.setFont('helvetica', 'bold')
     pdf.setFontSize(12)
-    pdf.text(label, x, y)
-    const labelGap = pdf.getTextWidth(label) + 5
-    return fitText(value, x + labelGap, y, valueWidth - labelGap, { size: valueSize, minSize: 8 })
+    pdf.text(label, x + labelWidth, y, { align: 'right' })
+    return fitText(value, x + labelWidth + 6, y, valueWidth, { size: valueSize, minSize: 8 })
   }
 
   pdf.setFont('helvetica', 'bold')
@@ -664,10 +663,10 @@ async function exportPdf(kind, payload) {
 
   const noLabel = kind === 'CI' ? 'CI NO. :' : kind === 'PI' ? 'PI NO. :' : 'QUOTE NO. :'
   let leftY = titleY + 24
-  leftY += Math.max(24, compactLabelValue('Company:', customer.company, 40, leftY, 300, 12) + 10)
-  leftY += Math.max(24, compactLabelValue('ATTN:', customer.attn, 40, leftY, 300, 12) + 10)
-  leftY += Math.max(28, compactLabelValue('Add.', customer.address, 40, leftY, 300, 10.5) + 12)
-  compactLabelValue('Tel:', customer.tel, 40, leftY, 300, 11)
+  leftY += Math.max(24, alignedLabelValue('Company:', customer.company, 22, leftY, 70, 300, 12) + 10)
+  leftY += Math.max(24, alignedLabelValue('ATTN:', customer.attn, 22, leftY, 70, 300, 12) + 10)
+  leftY += Math.max(28, alignedLabelValue('Add.', customer.address, 22, leftY, 70, 300, 10.5) + 12)
+  alignedLabelValue('Tel:', customer.tel, 22, leftY, 70, 300, 11)
   const rightY = titleY + 29
   labelValue(noLabel, doc.no, 315, rightY, 70, 175, 12)
   labelValue('Date:', formatDate(doc.date), 315, rightY + 27, 70, 175, 12)
