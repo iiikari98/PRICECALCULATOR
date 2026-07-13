@@ -3,7 +3,7 @@ import ExcelJS from 'exceljs'
 import { saveAs } from 'file-saver'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { Calculator, Download, FileText, Plus, RefreshCw, Ship, Trash2 } from 'lucide-react'
+import { Calculator, FileText, Plus, RefreshCw, Ship, Trash2 } from 'lucide-react'
 import './App.css'
 
 const termRules = {
@@ -292,16 +292,6 @@ async function loadWorkbook(template) {
   const buffer = await response.arrayBuffer()
   await workbook.xlsx.load(buffer)
   return workbook
-}
-
-async function loadAssetDataUrl(path) {
-  const response = await fetch(path)
-  const blob = await response.blob()
-  return new Promise((resolve) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result)
-    reader.readAsDataURL(blob)
-  })
 }
 
 function setCell(sheet, address, value) {
@@ -621,7 +611,6 @@ async function exportPdf(kind, payload) {
   const title = kind === 'PI' ? 'PROFORMA INVOICE' : kind === 'CI' ? 'COMMERCIAL INVOICE' : 'QUOTATION'
   const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
   const width = pdf.internal.pageSize.getWidth()
-  const logoDataUrl = await loadAssetDataUrl('/assets/logo-mark.png')
 
   const fitText = (text, x, y, maxWidth, { size = 12, minSize = 8, style = 'normal', align = 'left', lineHeight = 1.15 } = {}) => {
     const value = String(text || '')
@@ -653,11 +642,10 @@ async function exportPdf(kind, payload) {
   }
 
   pdf.setFont('helvetica', 'bold')
-  pdf.setFontSize(18)
-  pdf.addImage(logoDataUrl, 'PNG', 105, 48, 34, 34)
-  pdf.text(companyProfile.name, 152, 68)
+  pdf.setFontSize(20)
+  pdf.text(companyProfile.name, width / 2, 58, { align: 'center' })
   const headerAddressHeight = fitText(companyProfile.address, width / 2, 96, 520, {
-    size: 9.5,
+    size: 10,
     minSize: 7.5,
     align: 'center',
     lineHeight: 1.08,
@@ -908,7 +896,7 @@ function App() {
     }
   }
 
-  const exportDocument = async (kind) => {
+  const _exportDocument = async (kind) => {
     setStatus(`正在生成 ${kind} Excel...`)
     const isCi = kind === 'CI'
     const template = isCi ? 'commercial-invoice-template.xlsx' : 'proforma-invoice-template.xlsx'
@@ -1262,20 +1250,6 @@ function App() {
               <dd>{money(totals.grand)}</dd>
             </div>
           </dl>
-          <div className="export-stack">
-            <button type="button" onClick={() => exportDocument('PI')}>
-              <Download size={17} aria-hidden="true" />
-              Excel PI
-            </button>
-            <button type="button" onClick={() => exportDocument('CI')}>
-              <Download size={17} aria-hidden="true" />
-              Excel CI
-            </button>
-            <button type="button" onClick={() => exportDocument('QUOTATION')}>
-              <Download size={17} aria-hidden="true" />
-              Excel 报价单
-            </button>
-          </div>
           <div className="export-stack pdf-stack">
             <button type="button" onClick={() => exportDocumentPdf('PI')}>
               <FileText size={17} aria-hidden="true" />
