@@ -37,8 +37,38 @@ const termRules = {
   },
 }
 
-const companyName = 'Shenzhen Jindaquan Technology Co.,Ltd'
-const companyAddress = 'Bld 16#, Wulian Xieping Ailian Industrial, Longcheng Longgang District, Shenzhen, China'
+const companyProfiles = {
+  shenzhen: {
+    id: 'shenzhen',
+    label: 'Shenzhen Jindaquan Technology Co., Ltd',
+    name: 'Shenzhen Jindaquan Technology Co.,Ltd',
+    address:
+      'Room 1605, ShiHong Building, No. 2095 Bixin Road, Nanlian Community, Longgang Subdistrict, Longgang District, Shenzhen, Guangdong, China',
+    tel: '+86-0755-28996208',
+    fax: '+86-0755-28994568',
+    bank: {
+      accountNo: '000409407436',
+      bankName: 'Shenzhen Rural Commercial Bank',
+      swift: 'SRCCCNBSXXX',
+      bankAddress: 'RCB BIdg, No.2028, Haixiu Road, Baoan Dist, Shenzhen China',
+    },
+  },
+  guangdong: {
+    id: 'guangdong',
+    label: 'Guangdong Jindaquan Technology Co., Ltd',
+    name: 'Guangdong Jindaquan Technology Co.,Ltd',
+    address:
+      'Bld 7#, Wanyang Zhongchuang Cheng, Shantangwei, Baishabu, Daling Street, Huizhou City, Guangdong Province, China',
+    tel: '+86-0755-28996208',
+    fax: '+86-0755-28994568',
+    bank: {
+      accountNo: '',
+      bankName: 'BANK OF CHINA HUIDONG SUB-BRANCH',
+      swift: 'BKCHCNBJ47A',
+      bankAddress: 'NO.98, JIAN SHE ROAD, HUIDONG, GUANGDONG, CHINA',
+    },
+  },
+}
 const serialStorageKey = 'jdq-generated-document-nos'
 
 const blankItem = () => ({
@@ -60,6 +90,7 @@ const defaultCustomer = {
 const defaultDoc = {
   no: '',
   date: new Date().toISOString().slice(0, 10),
+  companyProfileId: 'shenzhen',
   by: '',
   customerType: 'company',
   documentSeq: '',
@@ -337,16 +368,45 @@ function addSheetLogo(workbook, sheet) {
 }
 
 function clearTemplateSampleData(sheet) {
-  ;['B4', 'D4', 'D5', 'D6', 'D7', 'D8', 'G5', 'H5', 'H6', 'H7', 'G8', 'I8', 'G19', 'G20', 'G21', 'G28'].forEach((cell) => {
+  ;[
+    'B4',
+    'D4',
+    'D5',
+    'D6',
+    'D7',
+    'D8',
+    'G5',
+    'H5',
+    'H6',
+    'H7',
+    'G8',
+    'I8',
+    'C19',
+    'C20',
+    'C21',
+    'G19',
+    'G20',
+    'G21',
+    'G28',
+  ].forEach((cell) => {
     setCell(sheet, cell, '')
   })
   clearInvoiceRows(sheet, 10, 18)
+  for (let row = 19; row <= 30; row += 1) {
+    ;['B', 'C', 'G'].forEach((col) => {
+      sheet.getCell(`${col}${row}`).value = ''
+    })
+  }
 }
 
 function fillInvoice(sheet, payload, title) {
-  const { customer, doc, rows, totals, fees } = payload
+  const { customer, doc, rows, totals, fees, companyProfile } = payload
+  const isPi = title === 'PROFORMA INVOICE'
   clearTemplateSampleData(sheet)
   const noLabel = title === 'COMMERCIAL INVOICE' ? 'CI NO. :' : title === 'PROFORMA INVOICE' ? 'PI NO. :' : 'QUOTE NO. :'
+  setFittedCell(sheet, 'A1', companyProfile.name, { baseSize: 16, minSize: 11, wrapAt: 42 })
+  setFittedCell(sheet, 'A2', companyProfile.address, { baseSize: 10, minSize: 7, wrapAt: 95 })
+  sheet.getRow(2).height = 34
   safeUnmerge(sheet, 'A4:I4')
   safeMerge(sheet, 'A4:I4')
   const titleCell = setCell(sheet, 'A4', title)
@@ -365,21 +425,24 @@ function fillInvoice(sheet, payload, title) {
   adjustRowHeight(sheet, 5, [customer.company], { baseHeight: 24, charsPerLine: 38, maxHeight: 42 })
   adjustRowHeight(sheet, 7, [customer.address], { baseHeight: 33, charsPerLine: 48, maxHeight: 58 })
 
-  const neededRows = Math.max(rows.length + 2, 3)
+  const itemStartRow = 10
+  const baseItemRows = 4
+  const extraItemRows = Math.max(0, rows.length - baseItemRows)
   const baseTotalRow = 14
-  if (neededRows > 4) {
-    sheet.spliceRows(baseTotalRow, 0, ...Array.from({ length: neededRows - 4 }, () => []))
-    for (let row = baseTotalRow; row < baseTotalRow + neededRows - 4; row += 1) {
+  if (extraItemRows > 0) {
+    sheet.spliceRows(baseTotalRow, 0, ...Array.from({ length: extraItemRows }, () => []))
+    for (let row = baseTotalRow; row < baseTotalRow + extraItemRows; row += 1) {
       for (let col = 1; col <= 13; col += 1) {
         copyStyle(sheet.getRow(13).getCell(col), sheet.getRow(row).getCell(col))
       }
     }
   }
 
-  clearInvoiceRows(sheet, 10, 14 + Math.max(0, neededRows - 4))
+  const totalRow = baseTotalRow + extraItemRows
+  clearInvoiceRows(sheet, itemStartRow, totalRow)
 
   rows.forEach((row, index) => {
-    const excelRow = 10 + index
+    const excelRow = itemStartRow + index
     setCell(sheet, `B${excelRow}`, index + 1)
     setFittedCell(sheet, `C${excelRow}`, row.description, { baseSize: 9, minSize: 7, wrapAt: 42 })
     setCell(sheet, `E${excelRow}`, row.qty === null ? '***' : `${row.qty}KG`)
@@ -388,7 +451,6 @@ function fillInvoice(sheet, payload, title) {
     adjustRowHeight(sheet, excelRow, [row.description], { baseHeight: 19, charsPerLine: 50, maxHeight: 46 })
   })
 
-  const totalRow = 10 + rows.length
   setCell(sheet, `B${totalRow}`, '')
   setCell(sheet, `C${totalRow}`, '')
   setCell(sheet, `E${totalRow}`, '')
@@ -407,11 +469,31 @@ function fillInvoice(sheet, payload, title) {
       ? 'Insurance: waived / included by shipping company'
       : `Insurance: ${(num(fees.insuranceRate) * 100).toFixed(3)}%`
     : ''
-  setCell(sheet, `B${totalRow + 4}`, insuranceNote)
-  setCell(sheet, `B${totalRow + 5}`, `Exchange rate: 1 USD = RMB ${num(fees.exchangeRate).toFixed(4)}`)
-  setCell(sheet, `B${totalRow + 6}`, `Final unit price: ${money(totals.cifPerKg)} / KG`)
+  const hasBankInfo = Boolean(companyProfile.bank.accountNo || companyProfile.bank.bankName || companyProfile.bank.swift)
+  const bankRow = totalRow + 5
+  if (isPi && hasBankInfo) {
+    setCell(sheet, `B${bankRow}`, 'BANK ACCOUNT:')
+    setCell(sheet, `B${bankRow + 1}`, `Beneficiary Name :   ${companyProfile.name.toUpperCase()}`)
+    setCell(sheet, `B${bankRow + 2}`, `Address of Beneficiary :   ${companyProfile.address}`)
+    setCell(sheet, `B${bankRow + 3}`, `Beneficiary Account No. :  ${companyProfile.bank.accountNo || ''}`)
+    setCell(sheet, `B${bankRow + 4}`, `Beneficiary bank:  ${companyProfile.bank.bankName || ''}`)
+    setCell(sheet, `B${bankRow + 5}`, `SWIFT Code:  ${companyProfile.bank.swift || ''}`)
+    setCell(sheet, `B${bankRow + 6}`, `Bank Address:  ${companyProfile.bank.bankAddress || ''}`)
+  }
 
-  const buyerRow = title === 'COMMERCIAL INVOICE' ? Math.max(21, totalRow + 7) : Math.max(20, totalRow + 7)
+  let buyerRow = isPi && hasBankInfo ? bankRow + 9 : totalRow + 5
+  if (!isPi) {
+    const noteRows = [
+      insuranceNote,
+      `Exchange rate: 1 USD = RMB ${num(fees.exchangeRate).toFixed(4)}`,
+      `Final unit price: ${money(totals.cifPerKg)} / KG`,
+    ].filter(Boolean)
+    noteRows.forEach((note, index) => setCell(sheet, `B${totalRow + 4 + index}`, note))
+    buyerRow = totalRow + 5 + noteRows.length
+  }
+  setCell(sheet, `C${buyerRow - 1}`, 'The seller')
+  setCell(sheet, `G${buyerRow - 1}`, 'The buyer')
+  setFittedCell(sheet, `C${buyerRow}`, companyProfile.name, { baseSize: 12, minSize: 9, wrapAt: 34 })
   setCell(sheet, `G${buyerRow}`, customer.buyer || customer.company)
   setFittedCell(sheet, `G${buyerRow}`, customer.buyer || customer.company, { baseSize: 12, minSize: 9, wrapAt: 34 })
 }
@@ -461,7 +543,7 @@ function downloadWorkbook(workbook, filename) {
 }
 
 async function exportPdf(kind, payload) {
-  const { customer, doc, rows, totals, fees } = payload
+  const { customer, doc, rows, totals, companyProfile } = payload
   const title = kind === 'PI' ? 'PROFORMA INVOICE' : kind === 'CI' ? 'COMMERCIAL INVOICE' : 'QUOTATION'
   const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
   const width = pdf.internal.pageSize.getWidth()
@@ -491,12 +573,12 @@ async function exportPdf(kind, payload) {
   pdf.setFont('helvetica', 'bold')
   pdf.setFontSize(18)
   pdf.addImage(logoDataUrl, 'PNG', 105, 48, 34, 34)
-  pdf.text(companyName, 152, 68)
+  pdf.text(companyProfile.name, 152, 68)
   pdf.setFont('helvetica', 'normal')
   pdf.setFontSize(10.5)
-  pdf.text(companyAddress, width / 2, 96, { align: 'center' })
-  pdf.text('Tel: +86-0755-28996208', width * 0.36, 114, { align: 'center' })
-  pdf.text('Fax: +86-0755-28994568', width * 0.67, 114, { align: 'center' })
+  pdf.text(companyProfile.address, width / 2, 96, { align: 'center' })
+  pdf.text(`Tel: ${companyProfile.tel}`, width * 0.36, 114, { align: 'center' })
+  pdf.text(`Fax: ${companyProfile.fax}`, width * 0.67, 114, { align: 'center' })
   pdf.setFont('helvetica', 'bold')
   pdf.setFontSize(15)
   pdf.text(title, width / 2, 136, { align: 'center' })
@@ -553,12 +635,28 @@ async function exportPdf(kind, payload) {
     },
   })
 
-  const signY = Math.max(455, pdf.lastAutoTable.finalY + 90)
+  const hasBankInfo = kind === 'PI' && Boolean(companyProfile.bank.accountNo || companyProfile.bank.bankName || companyProfile.bank.swift)
+  const bankY = pdf.lastAutoTable.finalY + 22
+  if (hasBankInfo) {
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(9)
+    pdf.text('BANK ACCOUNT:', 40, bankY)
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(8.5)
+    pdf.text(`Beneficiary Name :   ${companyProfile.name.toUpperCase()}`, 40, bankY + 14)
+    pdf.text(`Address of Beneficiary :   ${companyProfile.address}`, 40, bankY + 28)
+    pdf.text(`Beneficiary Account No. :  ${companyProfile.bank.accountNo || ''}`, 40, bankY + 42)
+    pdf.text(`Beneficiary bank:  ${companyProfile.bank.bankName || ''}`, 40, bankY + 56)
+    pdf.text(`SWIFT Code:  ${companyProfile.bank.swift || ''}`, 40, bankY + 70)
+    pdf.text(`Bank Address:  ${companyProfile.bank.bankAddress || ''}`, 40, bankY + 84)
+  }
+
+  const signY = hasBankInfo ? Math.max(535, bankY + 120) : Math.max(455, bankY + 42)
   pdf.setFont('helvetica', 'normal')
   pdf.setFontSize(11)
   pdf.text('The seller', 55, signY)
   pdf.text('The buyer', 385, signY)
-  pdf.text(companyName, 55, signY + 45)
+  pdf.text(companyProfile.name, 55, signY + 45)
   pdf.line(55, signY + 49, 235, signY + 49)
   fitText(customer.buyer || customer.company || '', 385, signY + 45, 170, { size: 11, minSize: 8 })
   pdf.line(385, signY + 49, 555, signY + 49)
@@ -576,7 +674,7 @@ function Input({ label, value, onChange, type = 'text', step, placeholder }) {
       <input
         type={type}
         step={step}
-        value={value}
+        value={value ?? ''}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
       />
@@ -591,7 +689,7 @@ function CurrencyInput({ label, value, currency, onValueChange, onCurrencyChange
       {!hiddenCurrency && (
         <label className="field">
           <span>币种</span>
-          <select value={currency} onChange={(event) => onCurrencyChange(event.target.value)}>
+          <select value={currency ?? 'USD'} onChange={(event) => onCurrencyChange(event.target.value)}>
             <option>USD</option>
             <option>CNY</option>
           </select>
@@ -610,6 +708,7 @@ function App() {
   const [generatedNos, setGeneratedNos] = useState(readGeneratedNos)
 
   const activeRule = termRules[fees.incoterm]
+  const activeCompanyProfile = companyProfiles[doc.companyProfileId] || companyProfiles.shenzhen
 
   const totals = useMemo(() => {
     const goodsCny = items.reduce(
@@ -670,7 +769,7 @@ function App() {
     }
   }, [activeRule, fees, items])
 
-  const payload = { customer, doc, rows: [], totals, fees }
+  const payload = { customer, doc, rows: [], totals, fees, companyProfile: activeCompanyProfile }
 
   const updateCustomer = (key, value) => setCustomer((current) => ({ ...current, [key]: value }))
   const updateDoc = (key, value) => setDoc((current) => ({ ...current, [key]: value }))
@@ -680,7 +779,7 @@ function App() {
   const generatedCustomerCode = suggestCustomerCode(customer, doc.customerType)
   const activeCustomerCode = doc.customerCode || generatedCustomerCode
   const generatedDocNo = buildDocumentNo({ ...doc, customerCode: activeCustomerCode }, customer)
-  const docNoLooksAuto = /^ALL\d{8}(?:-[A-Z0-9]+)?(?:-DOC)?$/i.test(doc.no)
+  const docNoLooksAuto = /^ALL\d{8}(?:-[A-Z]{2}[A-Z0-9]{1,4}\d{2})?$/i.test(doc.no)
   const activeDocNo = !doc.no || docNoLooksAuto ? generatedDocNo : doc.no
   const isDuplicateNo = generatedNos.includes(activeDocNo)
 
@@ -769,6 +868,16 @@ function App() {
             <h2>单据信息</h2>
             <span>Document</span>
           </div>
+          <label className="field">
+            <span>公司主体</span>
+            <select value={doc.companyProfileId} onChange={(event) => updateDoc('companyProfileId', event.target.value)}>
+              {Object.values(companyProfiles).map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <Input label="Date" type="date" value={doc.date} onChange={(value) => updateDoc('date', value)} />
           <Input
             label="单据流水号"
