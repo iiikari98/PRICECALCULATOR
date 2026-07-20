@@ -70,6 +70,7 @@ const companyProfiles = {
   },
 }
 const serialStorageKey = 'jdq-generated-document-nos'
+const publicAsset = (path) => `${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`
 
 const isoCountryCodes = [
   'AD',
@@ -412,6 +413,7 @@ const blankItem = () => ({
   hsCode: '',
   qty: '',
   unitPrice: '',
+  tierPrices: '',
   currency: 'USD',
 })
 
@@ -454,6 +456,8 @@ const defaultFees = {
   insuranceRate: '0.003',
   insuranceWaived: false,
 }
+
+const fixedExchangeRate = '6.5'
 
 const roundCurrency = (value) => Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100
 
@@ -603,11 +607,25 @@ function buildDocumentNo(doc, customer) {
   ].join('')
 }
 
-function formatItemDescription(item) {
+function formatItemDescription(item, includeHsCode = false) {
   const description = String(item.description || '').trim()
   const hsCode = String(item.hsCode || '').trim()
-  if (!hsCode) return description
+  if (!includeHsCode || !hsCode) return description
   return description ? `${description}\nHS Code: ${hsCode}` : `HS Code: ${hsCode}`
+}
+
+function parseTierPrices(value) {
+  return String(value || '')
+    .split(/[\n;,]+/)
+    .map((part) => {
+      const [qtyText, priceText] = part.split(/[:=]/)
+      const qty = num(qtyText)
+      const unitPrice = num(priceText)
+      if (!qty || !unitPrice) return null
+      return { qty, unitPrice }
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.qty - b.qty)
 }
 
 function readGeneratedNos() {
@@ -624,7 +642,7 @@ function saveGeneratedNos(values) {
 
 async function loadWorkbook(template) {
   const workbook = new ExcelJS.Workbook()
-  const response = await fetch(`/templates/${template}`)
+  const response = await fetch(publicAsset(`templates/${template}`))
   const buffer = await response.arrayBuffer()
   await workbook.xlsx.load(buffer)
   return workbook
@@ -655,7 +673,10 @@ async function loadAssetBase64(path) {
 }
 
 async function registerPdfFonts(pdf) {
-  const [regular, bold] = await Promise.all([loadAssetBase64('/assets/segoeui.ttf'), loadAssetBase64('/assets/segoeuib.ttf')])
+  const [regular, bold] = await Promise.all([
+    loadAssetBase64(publicAsset('assets/segoeui.ttf')),
+    loadAssetBase64(publicAsset('assets/segoeuib.ttf')),
+  ])
   pdf.addFileToVFS('segoeui.ttf', regular)
   pdf.addFileToVFS('segoeuib.ttf', bold)
   pdf.addFont('segoeui.ttf', 'SegoeEmbedded', 'normal')
@@ -722,7 +743,7 @@ function safeMerge(sheet, range) {
 }
 
 function addSheetLogo(workbook, sheet) {
-  return loadAssetBuffer('/assets/logo-mark.png').then((buffer) => {
+  return loadAssetBuffer(publicAsset('assets/logo-mark.png')).then((buffer) => {
     const logoId = workbook.addImage({ buffer, extension: 'png' })
     sheet.addImage(logoId, 'B1:C3')
   })
@@ -859,19 +880,33 @@ function fillInvoice(sheet, payload, title) {
   setFittedCell(sheet, `G${buyerRow}`, customer.buyer || customer.company, { baseSize: 12, minSize: 9, wrapAt: 34 })
 }
 
-function buildRows(items, fees, totals) {
+function buildRows(items, fees, totals, kind = 'PI') {
   const rule = termRules[fees.incoterm]
-  const goods = items
-    .filter((item) => item.description || item.hsCode || num(item.qty) || num(item.unitPrice))
-    .map((item) => {
-      const unitPriceUsd = toUsd(item.unitPrice, item.currency, fees.exchangeRate)
-      return {
-        description: formatItemDescription(item),
-        qty: num(item.qty),
-        unitPrice: unitPriceUsd,
-        subtotal: num(item.qty) * unitPriceUsd,
-      }
-    })
+  const includeHsCode = kind === 'CI'
+  const hasQuotationTiers = kind === 'QUOTATION' && items.some((item) => parseTierPrices(item.tierPrices).length > 0)
+  const goods = items.flatMap((item) => {
+    const tiers = kind === 'QUOTATION' ? parseTierPrices(item.tierPrices) : []
+    if (tiers.length > 0) {
+      return tiers.map((tier) => {
+        const unitPriceUsd = toUsd(tier.unitPrice, item.currency, fees.exchangeRate)
+        return {
+          description: formatItemDescription(item, false),
+          qty: tier.qty,
+          unitPrice: unitPriceUsd,
+          subtotal: tier.qty * unitPriceUsd,
+        }
+      })
+    }
+    if (!(item.description || item.hsCode || num(item.qty) || num(item.unitPrice))) return []
+    const unitPriceUsd = toUsd(item.unitPrice, item.currency, fees.exchangeRate)
+    return {
+      description: formatItemDescription(item, includeHsCode),
+      qty: num(item.qty),
+      unitPrice: unitPriceUsd,
+      subtotal: num(item.qty) * unitPriceUsd,
+    }
+  })
+  if (hasQuotationTiers) return goods
   const extraRows = []
   if (rule.needsLocal && totals.local > 0) {
     extraRows.push({ description: 'Local charge', qty: null, unitPrice: null, subtotal: totals.local })
@@ -891,10 +926,36 @@ function buildRows(items, fees, totals) {
   const rows = [...goods, ...extraRows]
   const rowsTotal = rows.reduce((sum, row) => sum + num(row.subtotal), 0)
   const adjustment = roundTwo(totals.grand - rowsTotal)
-  if (Math.abs(adjustment) >= 0.01) {
+  if (kind !== 'QUOTATION' && Math.abs(adjustment) >= 0.01) {
     rows.push({ description: 'RMB conversion rounding adjustment', qty: null, unitPrice: null, subtotal: adjustment })
   }
   return rows
+}
+
+function buildDocumentData(items, fees, totals, kind = 'PI') {
+  const rows = buildRows(items, fees, totals, kind)
+  const hasQuotationTiers = kind === 'QUOTATION' && items.some((item) => parseTierPrices(item.tierPrices).length > 0)
+  if (!hasQuotationTiers) return { rows, totals }
+
+  const grand = roundTwo(rows.reduce((sum, row) => sum + num(row.subtotal), 0))
+  const qty = rows.reduce((sum, row) => sum + num(row.qty), 0)
+  return {
+    rows,
+    totals: {
+      ...totals,
+      goods: grand,
+      grand,
+      cifPerKg: qty > 0 ? roundTwo(grand / qty) : 0,
+    },
+  }
+}
+
+function exportErrorMessage(kind, format, error) {
+  const message = String(error?.message || error || '')
+  if (message.includes('Failed to fetch')) {
+    return `${kind} ${format} 生成失败：本地资源读取失败，请重新双击“启动离线浏览器版.bat”后刷新页面`
+  }
+  return `${kind} ${format} 生成失败，请检查内容后重试`
 }
 
 function downloadWorkbook(workbook, filename) {
@@ -909,7 +970,7 @@ async function exportPdf(kind, payload) {
   const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
   await registerPdfFonts(pdf)
   const width = pdf.internal.pageSize.getWidth()
-  const logoDataUrl = await loadAssetDataUrl('/assets/logo-mark.png')
+  const logoDataUrl = await loadAssetDataUrl(publicAsset('assets/logo-mark.png'))
   const ink = [24, 30, 27]
   const brand = [0, 128, 113]
   const brandDark = [0, 95, 84]
@@ -1059,7 +1120,7 @@ async function exportPdf(kind, payload) {
   pdf.save(`${cleanNo}-${kind}.pdf`)
 }
 
-function Input({ label, value, onChange, type = 'text', step, placeholder }) {
+function Input({ label, value, onChange, type = 'text', step, placeholder, disabled = false }) {
   return (
     <label className="field">
       <span>{label}</span>
@@ -1068,6 +1129,7 @@ function Input({ label, value, onChange, type = 'text', step, placeholder }) {
         step={step}
         value={value ?? ''}
         placeholder={placeholder}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
       />
     </label>
@@ -1171,19 +1233,26 @@ function App() {
       const countryCode = countryCodeFromName(value)
       return { ...current, customerCountry: value, countryCode: countryCode || current.countryCode, no: '' }
     })
-  const updateFees = (key, value) => setFees((current) => ({ ...current, [key]: value }))
+  const updateFees = (key, value) => setFees((current) => ({ ...current, [key]: key === 'exchangeRate' ? fixedExchangeRate : value }))
   const updateItem = (id, key, value) =>
     setItems((current) => current.map((item) => (item.id === id ? { ...item, [key]: value } : item)))
   const generatedCustomerCode = suggestCustomerCode(customer, doc.customerType)
   const activeCustomerCode = doc.customerCode || generatedCustomerCode
   const generatedDocNo = buildDocumentNo({ ...doc, customerCode: activeCustomerCode }, customer)
   const activeDocNo = doc.no
-  const canGenerateDocNo = Boolean(doc.date && doc.documentSeq && doc.countryCode && activeCustomerCode && doc.customerOrderSeq)
+  const missingDocNoFields = [
+    !doc.date && '日期',
+    !doc.documentSeq && '今日第几单',
+    !doc.countryCode && '国家代码',
+    !activeCustomerCode && '客户编码（可填公司简称）',
+    !doc.customerOrderSeq && '该客户第几次订单',
+  ].filter(Boolean)
+  const canGenerateDocNo = missingDocNoFields.length === 0
   const isDuplicateNo = Boolean(activeDocNo && generatedNos.includes(activeDocNo))
 
   const generateDocumentNo = () => {
     if (!canGenerateDocNo) {
-      setStatus('请先填写单据流水号、客户国家/国家代码、客户编码和该客户第几次订单')
+      setStatus(`请先填写：${missingDocNoFields.join('、')}。地址和电话不影响生成单号`)
       return
     }
     updateDoc('no', generatedDocNo)
@@ -1211,26 +1280,32 @@ function App() {
       setStatus('请先生成单号')
       return
     }
-    setStatus(`正在生成 ${kind} Excel...`)
-    const isCi = kind === 'CI'
-    const template = isCi ? 'commercial-invoice-template.xlsx' : 'proforma-invoice-template.xlsx'
-    const workbook = await loadWorkbook(template)
-    const sheet = workbook.getWorksheet('PI') || workbook.worksheets[0]
-    const title = kind === 'PI' ? 'PROFORMA INVOICE' : kind === 'CI' ? 'COMMERCIAL INVOICE' : 'QUOTATION'
-    fillInvoice(
-      sheet,
-      {
-        ...payload,
-        doc: { ...doc, no: activeDocNo },
-        rows: buildRows(items, fees, totals),
-      },
-      title,
-    )
-    await addSheetLogo(workbook, sheet)
-    const cleanNo = activeDocNo.replace(/[^\w-]/g, '') || `${kind}-${doc.date || new Date().toISOString().slice(0, 10)}`
-    await downloadWorkbook(workbook, `${cleanNo}-${kind}.xlsx`)
-    rememberNo()
-    setStatus(`${kind} Excel 已生成，可在浏览器下载记录里查看`)
+    try {
+      setStatus(`正在生成 ${kind} Excel...`)
+      const isCi = kind === 'CI'
+      const template = isCi ? 'commercial-invoice-template.xlsx' : 'proforma-invoice-template.xlsx'
+      const workbook = await loadWorkbook(template)
+      const sheet = workbook.getWorksheet('PI') || workbook.worksheets[0]
+      const title = kind === 'PI' ? 'PROFORMA INVOICE' : kind === 'CI' ? 'COMMERCIAL INVOICE' : 'QUOTATION'
+      const documentData = buildDocumentData(items, fees, totals, kind)
+      fillInvoice(
+        sheet,
+        {
+          ...payload,
+          doc: { ...doc, no: activeDocNo },
+          ...documentData,
+        },
+        title,
+      )
+      await addSheetLogo(workbook, sheet)
+      const cleanNo = activeDocNo.replace(/[^\w-]/g, '') || `${kind}-${doc.date || new Date().toISOString().slice(0, 10)}`
+      await downloadWorkbook(workbook, `${cleanNo}-${kind}.xlsx`)
+      rememberNo()
+      setStatus(`${kind} Excel 已生成，可在浏览器下载记录里查看`)
+    } catch (error) {
+      console.error(error)
+      setStatus(exportErrorMessage(kind, 'Excel', error))
+    }
   }
 
   const exportDocumentPdf = async (kind) => {
@@ -1238,21 +1313,26 @@ function App() {
       setStatus('请先生成单号')
       return
     }
-    setStatus(`正在生成 ${kind} PDF...`)
-    await exportPdf(kind, {
-      ...payload,
-      doc: { ...doc, no: activeDocNo },
-      rows: buildRows(items, fees, totals),
-    })
-    rememberNo()
-    setStatus(`${kind} PDF 已生成，可在浏览器下载记录里查看`)
+    try {
+      setStatus(`正在生成 ${kind} PDF...`)
+      await exportPdf(kind, {
+        ...payload,
+        doc: { ...doc, no: activeDocNo },
+        ...buildDocumentData(items, fees, totals, kind),
+      })
+      rememberNo()
+      setStatus(`${kind} PDF 已生成，可在浏览器下载记录里查看`)
+    } catch (error) {
+      console.error(error)
+      setStatus(exportErrorMessage(kind, 'PDF', error))
+    }
   }
 
   return (
     <main className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <img className="brand-logo" src="/assets/company-logo.png" alt="ARGIOPE 金蛛王" />
+          <img className="brand-logo" src={publicAsset('assets/company-logo.png')} alt="ARGIOPE 金蛛王" />
           <div>
             <h1>报价计算器</h1>
             <p>Shenzhen Jindaquan PI / CI / Quotation</p>
@@ -1295,7 +1375,7 @@ function App() {
           </label>
           <Input label="Date" type="date" value={doc.date} onChange={(value) => updateSerialDoc('date', value)} />
           <Input
-            label="单据流水号"
+            label="今日第几单"
             type="number"
             value={doc.documentSeq}
             placeholder=""
@@ -1306,11 +1386,11 @@ function App() {
               <span>单号状态</span>
               <strong>{activeDocNo || '未生成'}</strong>
             </div>
-            <button type="button" className="small-button" onClick={generateDocumentNo} disabled={!canGenerateDocNo}>
+            <button type="button" className="small-button" onClick={generateDocumentNo}>
               生成单号
             </button>
           </div>
-          {isDuplicateNo && <p className="duplicate-warning">这个单号已在本机生成过，请调整单据流水号。</p>}
+          {isDuplicateNo && <p className="duplicate-warning">这个单号已在本机生成过，请调整今日第几单。</p>}
           {activeDocNo && <Input label="PI / Quote No." value={activeDocNo} onChange={(value) => updateDoc('no', value)} />}
           <label className="field">
             <span>客户类型</span>
@@ -1368,6 +1448,7 @@ function App() {
               <span>HS CODE</span>
               <span>QTY(KG)</span>
               <span>Unit Price</span>
+              <span>Tier EXW</span>
               <span>币种</span>
               <span>Subtotal USD</span>
               <span></span>
@@ -1397,6 +1478,11 @@ function App() {
                   value={item.unitPrice}
                   placeholder="0.00"
                   onChange={(event) => updateItem(item.id, 'unitPrice', event.target.value)}
+                />
+                <input
+                  value={item.tierPrices ?? ''}
+                  placeholder="100=2.5; 500=2.3"
+                  onChange={(event) => updateItem(item.id, 'tierPrices', event.target.value)}
                 />
                 <select value={item.currency} onChange={(event) => updateItem(item.id, 'currency', event.target.value)}>
                   <option>USD</option>
@@ -1434,8 +1520,9 @@ function App() {
                 label="汇率：1 USD = RMB"
                 type="number"
                 step="0.0001"
-                value={fees.exchangeRate}
+                value={fixedExchangeRate}
                 placeholder="6.5"
+                disabled
                 onChange={(value) => updateFees('exchangeRate', value)}
               />
               <div className="term-note">

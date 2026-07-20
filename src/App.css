@@ -236,7 +236,7 @@ textarea::placeholder {
 .table-head,
 .table-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1.7fr) 108px 86px 110px 82px 120px 42px;
+  grid-template-columns: minmax(170px, 1.5fr) 96px 76px 94px minmax(140px, 1fr) 76px 110px 42px;
   gap: 0;
   align-items: center;
 }
