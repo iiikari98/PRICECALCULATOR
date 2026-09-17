@@ -429,6 +429,7 @@ const defaultDoc = {
   no: '',
   date: new Date().toISOString().slice(0, 10),
   companyProfileId: 'shenzhen',
+  bank: { ...companyProfiles.shenzhen.bank },
   by: '',
   customerType: 'company',
   documentSeq: '',
@@ -449,6 +450,9 @@ const defaultFees = {
   localCurrency: 'CNY',
   ocean: '',
   oceanCurrency: 'USD',
+  courier: '',
+  courierCurrency: 'USD',
+  courierLabel: 'Courier Freight',
   bank: '',
   bankCurrency: 'USD',
   other: '',
@@ -917,6 +921,9 @@ function buildRows(items, fees, totals, kind = 'PI') {
   if (rule.needsInsurance && !fees.insuranceWaived && totals.insurance > 0) {
     extraRows.push({ description: 'Insurance', qty: null, unitPrice: null, subtotal: totals.insurance })
   }
+  if (totals.courier > 0) {
+    extraRows.push({ description: fees.courierLabel.trim() || 'Courier Freight', qty: null, unitPrice: null, subtotal: totals.courier })
+  }
   if (totals.bank > 0) {
     extraRows.push({ description: 'Bank transfer Fee', qty: null, unitPrice: null, subtotal: totals.bank })
   }
@@ -1163,6 +1170,8 @@ function App() {
 
   const activeRule = termRules[fees.incoterm]
   const activeCompanyProfile = companyProfiles[doc.companyProfileId] || companyProfiles.shenzhen
+  const activePaymentBank = doc.bank || activeCompanyProfile.bank
+  const documentCompanyProfile = { ...activeCompanyProfile, bank: activePaymentBank }
 
   const totals = useMemo(() => {
     const goodsCny = items.reduce(
@@ -1178,18 +1187,21 @@ function App() {
     const localUsd = activeRule.needsLocal && fees.localCurrency === 'USD' ? num(fees.local) : 0
     const oceanCny = activeRule.needsOcean && fees.oceanCurrency === 'CNY' ? num(fees.ocean) : 0
     const oceanUsd = activeRule.needsOcean && fees.oceanCurrency === 'USD' ? num(fees.ocean) : 0
+    const courierCny = fees.courierCurrency === 'CNY' ? num(fees.courier) : 0
+    const courierUsd = fees.courierCurrency === 'USD' ? num(fees.courier) : 0
     const bankCny = fees.bankCurrency === 'CNY' ? num(fees.bank) : 0
     const bankUsd = fees.bankCurrency === 'USD' ? num(fees.bank) : 0
     const otherCny = fees.otherCurrency === 'CNY' ? num(fees.other) : 0
     const otherUsd = fees.otherCurrency === 'USD' ? num(fees.other) : 0
 
     const rmbBase = goodsCny + localCny + oceanCny
-    const rmbAddons = bankCny + otherCny
+    const rmbAddons = courierCny + bankCny + otherCny
     const rmbBaseUsd = roundedRmbToUsd(rmbBase, fees.exchangeRate)
     const rmbAddonsUsd = roundedRmbToUsd(rmbAddons, fees.exchangeRate)
     const goods = goodsUsd + roundedRmbToUsd(goodsCny, fees.exchangeRate)
     const local = localUsd + roundedRmbToUsd(localCny, fees.exchangeRate)
     const ocean = oceanUsd + roundedRmbToUsd(oceanCny, fees.exchangeRate)
+    const courier = courierUsd + roundedRmbToUsd(courierCny, fees.exchangeRate)
     const bank = bankUsd + roundedRmbToUsd(bankCny, fees.exchangeRate)
     const other = otherUsd + roundedRmbToUsd(otherCny, fees.exchangeRate)
     const fob = rmbBaseUsd + goodsUsd + localUsd
@@ -1197,7 +1209,7 @@ function App() {
     const insurance = activeRule.needsInsurance && !fees.insuranceWaived ? cfr * num(fees.insuranceRate) * 1.1 : 0
     const cif = cfr + insurance
     const baseByTerm = { EXW: goods, FOB: fob, CFR: cfr, CIF: cif }[fees.incoterm] || goods
-    const grand = baseByTerm + rmbAddonsUsd + bankUsd + otherUsd
+    const grand = baseByTerm + rmbAddonsUsd + courierUsd + bankUsd + otherUsd
     const cifPerKg = qty > 0 ? roundTwo(grand / qty) : 0
     return {
       goods,
@@ -1206,6 +1218,7 @@ function App() {
       qty,
       local,
       ocean,
+      courier,
       bank,
       other,
       rmbBase,
@@ -1213,7 +1226,7 @@ function App() {
       rmbBaseUsd,
       rmbAddonsUsd,
       usdBase: goodsUsd + localUsd + oceanUsd,
-      usdAddons: bankUsd + otherUsd,
+      usdAddons: courierUsd + bankUsd + otherUsd,
       fob,
       cfr,
       insurance,
@@ -1223,10 +1236,16 @@ function App() {
     }
   }, [activeRule, fees, items])
 
-  const payload = { customer, doc, rows: [], totals, fees, companyProfile: activeCompanyProfile }
+  const payload = { customer, doc, rows: [], totals, fees, companyProfile: documentCompanyProfile }
 
   const updateCustomer = (key, value) => setCustomer((current) => ({ ...current, [key]: value }))
   const updateDoc = (key, value) => setDoc((current) => ({ ...current, [key]: value }))
+  const updateBank = (key, value) =>
+    setDoc((current) => ({ ...current, bank: { ...(current.bank || {}), [key]: value } }))
+  const updateCompanyProfile = (companyProfileId) => {
+    const profile = companyProfiles[companyProfileId] || companyProfiles.shenzhen
+    setDoc((current) => ({ ...current, companyProfileId, bank: { ...profile.bank } }))
+  }
   const updateSerialDoc = (key, value) => setDoc((current) => ({ ...current, [key]: value, no: '' }))
   const updateCustomerCountry = (value) =>
     setDoc((current) => {
@@ -1365,7 +1384,7 @@ function App() {
           </div>
           <label className="field">
             <span>公司主体</span>
-            <select value={doc.companyProfileId} onChange={(event) => updateDoc('companyProfileId', event.target.value)}>
+            <select value={doc.companyProfileId} onChange={(event) => updateCompanyProfile(event.target.value)}>
               {Object.values(companyProfiles).map((profile) => (
                 <option key={profile.id} value={profile.id}>
                   {profile.label}
@@ -1373,6 +1392,26 @@ function App() {
               ))}
             </select>
           </label>
+          <div className="panel-title spaced">
+            <h2>PI 收款账户</h2>
+            <span>Only on PI</span>
+          </div>
+          <Input
+            label="收款账号 / Beneficiary Account No."
+            value={activePaymentBank.accountNo}
+            onChange={(value) => updateBank('accountNo', value)}
+          />
+          <Input
+            label="收款银行 / Beneficiary Bank"
+            value={activePaymentBank.bankName}
+            onChange={(value) => updateBank('bankName', value)}
+          />
+          <Input label="SWIFT Code" value={activePaymentBank.swift} onChange={(value) => updateBank('swift', value)} />
+          <Input
+            label="银行地址 / Bank Address"
+            value={activePaymentBank.bankAddress}
+            onChange={(value) => updateBank('bankAddress', value)}
+          />
           <Input label="Date" type="date" value={doc.date} onChange={(value) => updateSerialDoc('date', value)} />
           <Input
             label="今日第几单"
@@ -1574,6 +1613,19 @@ function App() {
               <div className="optional-fees">
                 <h3>单据附加费用</h3>
                 <CurrencyInput
+                  label="快递运费 / Courier Freight"
+                  value={fees.courier}
+                  currency={fees.courierCurrency}
+                  onValueChange={(value) => updateFees('courier', value)}
+                  onCurrencyChange={(value) => updateFees('courierCurrency', value)}
+                />
+                <Input
+                  label="快递运费名称 / PDF Description"
+                  value={fees.courierLabel}
+                  placeholder="例如：UPS Courier Freight"
+                  onChange={(value) => updateFees('courierLabel', value)}
+                />
+                <CurrencyInput
                   label="银行手续费"
                   value={fees.bank}
                   currency={fees.bankCurrency}
@@ -1654,8 +1706,8 @@ function App() {
               <dd>{cny(fromUsd(totals.cifPerKg, 'CNY', fees.exchangeRate))} / KG</dd>
             </div>
             <div>
-              <dt>银行/其他附加</dt>
-              <dd>{money(totals.bank + totals.other)}</dd>
+              <dt>快递/银行/其他附加</dt>
+              <dd>{money(totals.courier + totals.bank + totals.other)}</dd>
             </div>
             <div className="grand">
               <dt>最终报价</dt>
