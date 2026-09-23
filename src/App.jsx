@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import ExcelJS from 'exceljs'
 import { saveAs } from 'file-saver'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { Calculator, FileText, Plus, RefreshCw, Ship, Trash2 } from 'lucide-react'
+import { Calculator, FileText, FileUp, Plus, RefreshCw, Ship, Trash2 } from 'lucide-react'
 import './App.css'
 
 const termRules = {
@@ -61,6 +61,7 @@ const companyProfiles = {
       'Bld 7#, Wanyang Zhongchuang Cheng, Shantangwei, Baishabu, Daling Street, Huizhou City, Guangdong Province, China',
     tel: '+86-0755-28996208',
     fax: '+86-0755-28994568',
+    sealAsset: 'assets/guangdong-company-seal.png',
     bank: {
       accountNo: '',
       bankName: 'BANK OF CHINA HUIDONG SUB-BRANCH',
@@ -69,6 +70,16 @@ const companyProfiles = {
     },
   },
 }
+
+const sellerSignatureOptions = [
+  { id: 'none', label: '不添加卖方签名', asset: null },
+  {
+    id: 'gong-saijain-alex',
+    label: 'Gong Saijain Alex（法定姓名 + 英文名）',
+    asset: 'assets/seller-signature-gong-saijain-alex.png',
+  },
+]
+
 const serialStorageKey = 'jdq-generated-document-nos'
 const publicAsset = (path) => `${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`
 
@@ -428,8 +439,8 @@ const defaultCustomer = {
 const defaultDoc = {
   no: '',
   date: new Date().toISOString().slice(0, 10),
-  companyProfileId: 'shenzhen',
-  bank: { ...companyProfiles.shenzhen.bank },
+  companyProfileId: 'guangdong',
+  bank: { ...companyProfiles.guangdong.bank },
   by: '',
   customerType: 'company',
   documentSeq: '',
@@ -441,6 +452,7 @@ const defaultDoc = {
   to: '',
   payment: '',
   leadTime: '',
+  sellerSignatureId: 'gong-saijain-alex',
 }
 
 const defaultFees = {
@@ -548,16 +560,20 @@ function underThousand(value) {
 }
 
 function amountWords(value) {
-  const rounded = Math.round(num(value))
-  if (!rounded) return 'SAY TOTAL U.S. DOLLARS ZERO ONLY'
-  const millions = Math.floor(rounded / 1000000)
-  const thousands = Math.floor((rounded % 1000000) / 1000)
-  const rest = rounded % 1000
+  const cents = Math.max(0, Math.round(num(value) * 100))
+  const wholeDollars = Math.floor(cents / 100)
+  const fractionalCents = cents % 100
+  if (!wholeDollars && !fractionalCents) return 'SAY TOTAL U.S. DOLLARS ZERO ONLY'
+  const millions = Math.floor(wholeDollars / 1000000)
+  const thousands = Math.floor((wholeDollars % 1000000) / 1000)
+  const rest = wholeDollars % 1000
   const parts = []
   if (millions) parts.push(`${underThousand(millions)} MILLION`)
   if (thousands) parts.push(`${underThousand(thousands)} THOUSAND`)
   if (rest) parts.push(underThousand(rest))
-  return `SAY TOTAL U.S. DOLLARS ${parts.join(' ')} ONLY`
+  const dollarWords = parts.join(' ') || 'ZERO'
+  const centsSuffix = fractionalCents ? ` AND ${String(fractionalCents).padStart(2, '0')}/100` : ''
+  return `SAY TOTAL U.S. DOLLARS ${dollarWords}${centsSuffix} ONLY`
 }
 
 function formatDate(date) {
@@ -611,11 +627,132 @@ function buildDocumentNo(doc, customer) {
   ].join('')
 }
 
+function documentNoForKind(number, kind) {
+  const base = String(number || '').trim()
+  const suffix = kind === 'PI' ? '-PI' : kind === 'CI' ? '-CI' : ''
+  if (!base || !suffix || base.toUpperCase().endsWith(suffix)) return base
+  return `${base}${suffix}`
+}
+
 function formatItemDescription(item, includeHsCode = false) {
   const description = String(item.description || '').trim()
   const hsCode = String(item.hsCode || '').trim()
   if (!includeHsCode || !hsCode) return description
   return description ? `${description}\nHS Code: ${hsCode}` : `HS Code: ${hsCode}`
+}
+
+function groupPdfTextRows(items) {
+  const rows = []
+  for (const item of items) {
+    const text = String(item.str || '').trim()
+    if (!text) continue
+    const x = Number(item.transform?.[4] || 0)
+    const y = Number(item.transform?.[5] || 0)
+    const row = rows.find((candidate) => Math.abs(candidate.y - y) < 2)
+    if (row) row.cells.push({ text, x })
+    else rows.push({ y, cells: [{ text, x }] })
+  }
+  return rows
+    .map((row) => ({ ...row, cells: row.cells.sort((a, b) => a.x - b.x) }))
+    .sort((a, b) => b.y - a.y)
+}
+
+function pdfRowText(row) {
+  return row.cells.map((cell) => cell.text).join(' ').replace(/\s+/g, ' ').trim()
+}
+
+function moneyFromPdf(value) {
+  const matched = String(value || '').replace(/,/g, '').match(/-?\d+(?:\.\d+)?/)
+  return matched ? matched[0] : ''
+}
+
+function fieldFromPdf(rows, label, stopLabels = []) {
+  const row = rows.find((candidate) => pdfRowText(candidate).toLowerCase().startsWith(label.toLowerCase()))
+  if (!row) return ''
+  let value = pdfRowText(row).slice(label.length).replace(/^\s*:\s*/, '').trim()
+  for (const stopLabel of stopLabels) {
+    const stopIndex = value.toLowerCase().indexOf(stopLabel.toLowerCase())
+    if (stopIndex >= 0) value = value.slice(0, stopIndex).trim()
+  }
+  return value
+}
+
+function fieldFromPdfCell(rows, label) {
+  const normalizedLabel = label.replace(/:$/, '').toLowerCase()
+  for (const row of rows) {
+    const cellIndex = row.cells.findIndex((cell) => cell.text.replace(/:$/, '').toLowerCase() === normalizedLabel)
+    if (cellIndex >= 0) return row.cells.slice(cellIndex + 1).map((cell) => cell.text).join(' ').trim()
+  }
+  return ''
+}
+
+async function parsePiPdf(file) {
+  const [pdfjs, workerModule] = await Promise.all([
+    import('pdfjs-dist'),
+    import('pdfjs-dist/build/pdf.worker.min.mjs?url'),
+  ])
+  pdfjs.GlobalWorkerOptions.workerSrc = workerModule.default
+  const document = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise
+  const page = await document.getPage(1)
+  const textContent = await page.getTextContent()
+  const rows = groupPdfTextRows(textContent.items)
+  const documentText = rows.map(pdfRowText).join('\n')
+  if (!/PROFORMA\s+INVOICE/i.test(documentText)) {
+    throw new Error('文件不是可识别的 PI PDF。请上传带可选中文字的 PROFORMA INVOICE，扫描件需要先 OCR。')
+  }
+
+  const headerIndex = rows.findIndex((row) => /\bItem\b/i.test(pdfRowText(row)) && /Description/i.test(pdfRowText(row)))
+  if (headerIndex < 0) throw new Error('未找到 PI 的货品明细表，请确认 PDF 不是扫描件或排版未损坏。')
+
+  const importedItems = []
+  const importedFees = { ...defaultFees }
+  for (const row of rows.slice(headerIndex + 1)) {
+    const cells = row.cells
+    const rowText = pdfRowText(row)
+    if (/^(BANK ACCOUNT:|The seller|Page\b)/i.test(rowText)) break
+    if (!/^\d+$/.test(cells[0]?.text || '')) continue
+    const qtyIndex = cells.findIndex((cell) => /^(?:\d+(?:\.\d+)?KG|\*\*\*)$/i.test(cell.text))
+    if (qtyIndex < 2) continue
+    const description = cells.slice(1, qtyIndex).map((cell) => cell.text).join(' ').trim()
+    const amount = moneyFromPdf(cells.at(-1)?.text)
+    if (!description || !amount) continue
+    if (/courier\s+freight/i.test(description)) {
+      importedFees.courier = amount
+      importedFees.courierLabel = description
+    } else if (/bank\s+transfer\s+fee/i.test(description)) {
+      importedFees.bank = amount
+    } else if (/^other\s+charge$/i.test(description)) {
+      importedFees.other = amount
+    } else if (!/\*\*\*/.test(cells[qtyIndex].text)) {
+      const qty = moneyFromPdf(cells[qtyIndex].text)
+      const unitPrice = moneyFromPdf(cells[qtyIndex + 1]?.text)
+      if (qty && unitPrice) {
+        importedItems.push({ ...blankItem(), description, hsCode: '', qty, unitPrice, currency: 'USD' })
+      }
+    }
+  }
+
+  const pdfDate = fieldFromPdf(rows, 'Date')
+  const [day, month, year] = pdfDate.split('/')
+  return {
+    customer: {
+      company: fieldFromPdf(rows, 'Company'),
+      attn: fieldFromPdf(rows, 'ATTN'),
+      address: fieldFromPdf(rows, 'Add.'),
+      tel: fieldFromPdf(rows, 'Tel', ['Fax:']),
+      buyer: fieldFromPdf(rows, 'Company'),
+    },
+    doc: {
+      no: fieldFromPdf(rows, 'PI NO.'),
+      date: /^\d{2}\/\d{2}\/\d{4}$/.test(pdfDate) ? `${year}-${month}-${day}` : '',
+      by: fieldFromPdf(rows, 'By'),
+      from: fieldFromPdf(rows, 'From', ['To']),
+      to: fieldFromPdfCell(rows, 'To'),
+      payment: '',
+    },
+    fees: importedFees,
+    items: importedItems,
+  }
 }
 
 function parseTierPrices(value) {
@@ -838,16 +975,18 @@ function fillInvoice(sheet, payload, title) {
   })
 
   setCell(sheet, `B${totalRow}`, '')
-  setCell(sheet, `C${totalRow}`, '')
-  setCell(sheet, `E${totalRow}`, '')
+  setCell(sheet, `C${totalRow}`, 'Total')
+  setCell(sheet, `E${totalRow}`, totals.qty > 0 ? `${totals.qty}KG` : '***')
   setCell(sheet, `G${totalRow}`, '')
   setCell(sheet, `I${totalRow}`, documentMoney(totals.grand))
 
   setCell(sheet, `B${totalRow + 1}`, amountWords(totals.grand))
-  setCell(sheet, `B${totalRow + 2}`, 'Payment: ')
-  setCell(sheet, `D${totalRow + 2}`, doc.payment)
-  setCell(sheet, `B${totalRow + 3}`, 'Lead-time: ')
-  setCell(sheet, `D${totalRow + 3}`, doc.leadTime)
+  setCell(sheet, `B${totalRow + 2}`, isPi ? 'Payment: ' : '')
+  setCell(sheet, `D${totalRow + 2}`, isPi ? doc.payment : '')
+  setCell(sheet, `B${totalRow + 3}`, isPi ? 'Lead-time: ' : '')
+  setCell(sheet, `D${totalRow + 3}`, isPi ? doc.leadTime : '')
+
+  setCell(sheet, 'G9', `Unit Price\n(${fees.incoterm || 'EXW'})`)
 
   const rule = termRules[fees.incoterm]
   const insuranceNote = rule.needsInsurance
@@ -882,6 +1021,14 @@ function fillInvoice(sheet, payload, title) {
   setFittedCell(sheet, `C${buyerRow}`, companyProfile.name, { baseSize: 12, minSize: 9, wrapAt: 34 })
   setCell(sheet, `G${buyerRow}`, customer.buyer || customer.company)
   setFittedCell(sheet, `G${buyerRow}`, customer.buyer || customer.company, { baseSize: 12, minSize: 9, wrapAt: 34 })
+}
+
+function courierDescription(fees, kind) {
+  const customLabel = fees.courierLabel.trim()
+  if (!customLabel || /^courier\s+freight$/i.test(customLabel)) {
+    return kind === 'CI' ? 'Shipping Fee' : 'Freight'
+  }
+  return customLabel
 }
 
 function buildRows(items, fees, totals, kind = 'PI') {
@@ -922,7 +1069,7 @@ function buildRows(items, fees, totals, kind = 'PI') {
     extraRows.push({ description: 'Insurance', qty: null, unitPrice: null, subtotal: totals.insurance })
   }
   if (totals.courier > 0) {
-    extraRows.push({ description: fees.courierLabel.trim() || 'Courier Freight', qty: null, unitPrice: null, subtotal: totals.courier })
+    extraRows.push({ description: courierDescription(fees, kind), qty: null, unitPrice: null, subtotal: totals.courier })
   }
   if (totals.bank > 0) {
     extraRows.push({ description: 'Bank transfer Fee', qty: null, unitPrice: null, subtotal: totals.bank })
@@ -972,12 +1119,17 @@ function downloadWorkbook(workbook, filename) {
 }
 
 async function exportPdf(kind, payload) {
-  const { customer, doc, rows, totals, companyProfile } = payload
+  const { customer, doc, rows, totals, fees, companyProfile } = payload
+  const sellerSignature = sellerSignatureOptions.find((option) => option.id === doc.sellerSignatureId)
   const title = kind === 'PI' ? 'PROFORMA INVOICE' : kind === 'CI' ? 'COMMERCIAL INVOICE' : 'QUOTATION'
   const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
   await registerPdfFonts(pdf)
   const width = pdf.internal.pageSize.getWidth()
-  const logoDataUrl = await loadAssetDataUrl(publicAsset('assets/logo-mark.png'))
+  const [logoDataUrl, sealDataUrl, signatureDataUrl] = await Promise.all([
+    loadAssetDataUrl(publicAsset('assets/logo-mark.png')),
+    companyProfile.sealAsset ? loadAssetDataUrl(publicAsset(companyProfile.sealAsset)) : Promise.resolve(null),
+    sellerSignature?.asset ? loadAssetDataUrl(publicAsset(sellerSignature.asset)) : Promise.resolve(null),
+  ])
   const ink = [24, 30, 27]
   const brand = [0, 128, 113]
   const brandDark = [0, 95, 84]
@@ -1044,7 +1196,7 @@ async function exportPdf(kind, payload) {
   autoTable(pdf, {
     startY: tableStartY,
     margin: { left: 20, right: 20 },
-    head: [['Item', 'Description', 'QTY(KG)', 'Unit Price (USD)', 'Subtotal']],
+    head: [['Item', 'Description', 'QTY(KG)', `Unit Price (${fees.incoterm || 'EXW'})`, 'Subtotal']],
     body: rows.map((row, index) => [
       index + 1,
       row.description,
@@ -1052,7 +1204,7 @@ async function exportPdf(kind, payload) {
       row.unitPrice === null ? '***' : documentMoney(row.unitPrice),
       documentMoney(row.subtotal),
     ]),
-    foot: [['', '', '', '', documentMoney(totals.grand)]],
+    foot: [['', 'Total', totals.qty > 0 ? `${totals.qty}KG` : '***', '***', documentMoney(totals.grand)]],
     theme: 'grid',
     styles: {
       font: 'SegoeEmbedded',
@@ -1080,8 +1232,35 @@ async function exportPdf(kind, payload) {
     },
   })
 
-  const hasBankInfo = kind === 'PI' && Boolean(companyProfile.bank.accountNo || companyProfile.bank.bankName || companyProfile.bank.swift)
-  const bankY = pdf.lastAutoTable.finalY + 22
+  const isPi = kind === 'PI'
+  let bankY = pdf.lastAutoTable.finalY + 22
+  if (kind === 'PI' || kind === 'CI') {
+    pdf.setTextColor(...ink)
+    pdf.setFont('SegoeEmbedded', 'bold')
+    pdf.setFontSize(9)
+    const amountWordsLines = pdf.splitTextToSize(amountWords(totals.grand), width - 80)
+    pdf.text(amountWordsLines, 40, bankY, { lineHeightFactor: 1.15 })
+    bankY += Math.max(18, amountWordsLines.length * 11) + 8
+  }
+  if (isPi) {
+    let termsY = bankY
+    const piTerms = [
+      ['Payment:', doc.payment],
+      ['Lead-time:', doc.leadTime],
+    ]
+    piTerms.forEach(([label, value]) => {
+      pdf.setTextColor(...ink)
+      pdf.setFont('SegoeEmbedded', 'bold')
+      pdf.setFontSize(9)
+      pdf.text(label, 40, termsY)
+      pdf.setFont('SegoeEmbedded', 'normal')
+      const valueLines = pdf.splitTextToSize(cleanPdfText(value), 380)
+      pdf.text(valueLines, 112, termsY, { lineHeightFactor: 1.15 })
+      termsY += Math.max(16, valueLines.length * 11)
+    })
+    bankY = termsY + 12
+  }
+  const hasBankInfo = isPi && Boolean(companyProfile.bank.accountNo || companyProfile.bank.bankName || companyProfile.bank.swift)
   let bankEndY = bankY
   if (hasBankInfo) {
     pdf.setTextColor(...brandDark)
@@ -1111,20 +1290,27 @@ async function exportPdf(kind, payload) {
   }
 
   const signY = hasBankInfo ? Math.max(535, bankEndY + 34) : Math.max(455, bankY + 42)
+  const signatureNameY = signY + 45
   pdf.setTextColor(...ink)
   pdf.setFont('SegoeEmbedded', 'normal')
   pdf.setFontSize(11)
   pdf.text('The seller', 55, signY)
   pdf.text('The buyer', 385, signY)
-  pdf.text(companyProfile.name, 55, signY + 45)
-  pdf.line(55, signY + 49, 235, signY + 49)
-  fitText(customer.buyer || customer.company || '', 385, signY + 45, 170, { size: 11, minSize: 8 })
-  pdf.line(385, signY + 49, 555, signY + 49)
+  if (signatureDataUrl) pdf.addImage(signatureDataUrl, 'PNG', 58, signY + 3, 150, 50)
+  pdf.text(companyProfile.name, 55, signatureNameY)
+  pdf.line(55, signatureNameY + 4, 235, signatureNameY + 4)
+  fitText(customer.buyer || customer.company || '', 385, signatureNameY, 170, { size: 11, minSize: 8 })
+  pdf.line(385, signatureNameY + 4, 555, signatureNameY + 4)
+  if (sealDataUrl) {
+    pdf.setGState(new pdf.GState({ opacity: 0.45 }))
+    pdf.addImage(sealDataUrl, 'PNG', 105, signY + 8, 105, 105)
+    pdf.setGState(new pdf.GState({ opacity: 1 }))
+  }
   pdf.setFontSize(10)
   pdf.text('Page  1  ,  Total  1  Pages', width / 2, 820, { align: 'center' })
 
   const cleanNo = doc.no.replace(/[^\w-]/g, '') || `${kind}-${doc.date || new Date().toISOString().slice(0, 10)}`
-  pdf.save(`${cleanNo}-${kind}.pdf`)
+  pdf.save(`${cleanNo}.pdf`)
 }
 
 function Input({ label, value, onChange, type = 'text', step, placeholder, disabled = false }) {
@@ -1167,9 +1353,10 @@ function App() {
   const [items, setItems] = useState([blankItem()])
   const [status, setStatus] = useState('准备生成单据')
   const [generatedNos, setGeneratedNos] = useState(readGeneratedNos)
+  const piFileInputRef = useRef(null)
 
   const activeRule = termRules[fees.incoterm]
-  const activeCompanyProfile = companyProfiles[doc.companyProfileId] || companyProfiles.shenzhen
+  const activeCompanyProfile = companyProfiles.guangdong
   const activePaymentBank = doc.bank || activeCompanyProfile.bank
   const documentCompanyProfile = { ...activeCompanyProfile, bank: activePaymentBank }
 
@@ -1242,10 +1429,6 @@ function App() {
   const updateDoc = (key, value) => setDoc((current) => ({ ...current, [key]: value }))
   const updateBank = (key, value) =>
     setDoc((current) => ({ ...current, bank: { ...(current.bank || {}), [key]: value } }))
-  const updateCompanyProfile = (companyProfileId) => {
-    const profile = companyProfiles[companyProfileId] || companyProfiles.shenzhen
-    setDoc((current) => ({ ...current, companyProfileId, bank: { ...profile.bank } }))
-  }
   const updateSerialDoc = (key, value) => setDoc((current) => ({ ...current, [key]: value, no: '' }))
   const updateCustomerCountry = (value) =>
     setDoc((current) => {
@@ -1268,6 +1451,38 @@ function App() {
   ].filter(Boolean)
   const canGenerateDocNo = missingDocNoFields.length === 0
   const isDuplicateNo = Boolean(activeDocNo && generatedNos.includes(activeDocNo))
+
+  const importPiPdf = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (file.type && file.type !== 'application/pdf') {
+      setStatus('请选择 PDF 格式的 PI 文件')
+      return
+    }
+    try {
+      setStatus('正在导入 PI PDF...')
+      const imported = await parsePiPdf(file)
+      setCustomer({ ...defaultCustomer, ...imported.customer })
+      setDoc((current) => ({
+        ...defaultDoc,
+        ...imported.doc,
+        companyProfileId: current.companyProfileId,
+        bank: current.bank,
+        leadTime: '',
+        documentSeq: '',
+        countryCode: '',
+        customerCode: '',
+        customerOrderSeq: '',
+      }))
+      setFees(imported.fees)
+      setItems(imported.items.length ? imported.items : [blankItem()])
+      setStatus(`PI 已导入 ${imported.items.length} 个产品。请补充每个产品的 HS CODE，再导出 PDF CI。`)
+    } catch (error) {
+      console.error(error)
+      setStatus(error.message || 'PI PDF 导入失败，请确认文件可选中文字且结构完整。')
+    }
+  }
 
   const generateDocumentNo = () => {
     if (!canGenerateDocNo) {
@@ -1311,14 +1526,15 @@ function App() {
         sheet,
         {
           ...payload,
-          doc: { ...doc, no: activeDocNo },
+          doc: { ...doc, no: documentNoForKind(activeDocNo, kind) },
           ...documentData,
         },
         title,
       )
       await addSheetLogo(workbook, sheet)
-      const cleanNo = activeDocNo.replace(/[^\w-]/g, '') || `${kind}-${doc.date || new Date().toISOString().slice(0, 10)}`
-      await downloadWorkbook(workbook, `${cleanNo}-${kind}.xlsx`)
+      const documentNo = documentNoForKind(activeDocNo, kind)
+      const cleanNo = documentNo.replace(/[^\w-]/g, '') || `${kind}-${doc.date || new Date().toISOString().slice(0, 10)}`
+      await downloadWorkbook(workbook, `${cleanNo}.xlsx`)
       rememberNo()
       setStatus(`${kind} Excel 已生成，可在浏览器下载记录里查看`)
     } catch (error) {
@@ -1336,7 +1552,7 @@ function App() {
       setStatus(`正在生成 ${kind} PDF...`)
       await exportPdf(kind, {
         ...payload,
-        doc: { ...doc, no: activeDocNo },
+        doc: { ...doc, no: documentNoForKind(activeDocNo, kind) },
         ...buildDocumentData(items, fees, totals, kind),
       })
       rememberNo()
@@ -1354,13 +1570,20 @@ function App() {
           <img className="brand-logo" src={publicAsset('assets/company-logo.png')} alt="ARGIOPE 金蛛王" />
           <div>
             <h1>报价计算器</h1>
-            <p>Shenzhen Jindaquan PI / CI / Quotation</p>
+            <p>Guangdong Jindaquan PI / CI / Quotation</p>
           </div>
         </div>
-        <button className="ghost-button" type="button" onClick={resetForm}>
-          <RefreshCw size={16} aria-hidden="true" />
-          清空重置
-        </button>
+        <div className="topbar-actions">
+          <input ref={piFileInputRef} type="file" accept="application/pdf" hidden onChange={importPiPdf} />
+          <button className="ghost-button" type="button" onClick={() => piFileInputRef.current?.click()}>
+            <FileUp size={16} aria-hidden="true" />
+            导入 PI PDF 转 CI
+          </button>
+          <button className="ghost-button" type="button" onClick={resetForm}>
+            <RefreshCw size={16} aria-hidden="true" />
+            清空重置
+          </button>
+        </div>
       </header>
 
       <section className="workspace">
@@ -1384,10 +1607,14 @@ function App() {
           </div>
           <label className="field">
             <span>公司主体</span>
-            <select value={doc.companyProfileId} onChange={(event) => updateCompanyProfile(event.target.value)}>
-              {Object.values(companyProfiles).map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.label}
+            <input value={companyProfiles.guangdong.label} disabled />
+          </label>
+          <label className="field">
+            <span>卖方签名 / Seller signature</span>
+            <select value={doc.sellerSignatureId} onChange={(event) => updateDoc('sellerSignatureId', event.target.value)}>
+              {sellerSignatureOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
                 </option>
               ))}
             </select>
@@ -1722,6 +1949,14 @@ function App() {
             <button type="button" onClick={() => exportDocumentPdf('CI')}>
               <FileText size={17} aria-hidden="true" />
               PDF CI
+            </button>
+            <button type="button" onClick={() => _exportDocument('PI')}>
+              <FileText size={17} aria-hidden="true" />
+              Excel PI
+            </button>
+            <button type="button" onClick={() => _exportDocument('CI')}>
+              <FileText size={17} aria-hidden="true" />
+              Excel CI
             </button>
             <button type="button" onClick={() => exportDocumentPdf('QUOTATION')}>
               <FileText size={17} aria-hidden="true" />

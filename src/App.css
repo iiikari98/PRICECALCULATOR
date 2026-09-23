@@ -47,6 +47,12 @@
   font-weight: 500;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: 300px minmax(520px, 1fr) 300px;
@@ -486,6 +492,11 @@ textarea::placeholder {
     padding: 14px;
     align-items: flex-start;
     gap: 12px;
+  }
+
+  .topbar-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 
   .brand {
