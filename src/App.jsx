@@ -74,8 +74,8 @@ const companyProfiles = {
 const sellerSignatureOptions = [
   { id: 'none', label: '不添加卖方签名', asset: null },
   {
-    id: 'gong-saijain-alex',
-    label: 'Gong Saijain Alex（法定姓名 + 英文名）',
+    id: 'gongsaiqin-alex',
+    label: 'Gongsaiqin Alex（法定姓名 + 英文名）',
     asset: 'assets/seller-signature-gong-saijain-alex.png',
   },
 ]
@@ -452,7 +452,7 @@ const defaultDoc = {
   to: '',
   payment: '',
   leadTime: '',
-  sellerSignatureId: 'gong-saijain-alex',
+  sellerSignatureId: 'gongsaiqin-alex',
 }
 
 const defaultFees = {
@@ -686,32 +686,16 @@ function fieldFromPdfCell(rows, label) {
   return ''
 }
 
-async function parsePiPdf(file) {
-  const [pdfjs, workerModule] = await Promise.all([
-    import('pdfjs-dist'),
-    import('pdfjs-dist/build/pdf.worker.min.mjs?url'),
-  ])
-  pdfjs.GlobalWorkerOptions.workerSrc = workerModule.default
-  const document = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise
-  const page = await document.getPage(1)
-  const textContent = await page.getTextContent()
-  const rows = groupPdfTextRows(textContent.items)
-  const documentText = rows.map(pdfRowText).join('\n')
+function parseInvoiceRows(rows) {
   const headerIndex = rows.findIndex((row) => /\bItem\b/i.test(pdfRowText(row)) && /Description/i.test(pdfRowText(row)))
-  const hasPiTitle = /(?:PROFORMA|PERFORMA)\s+INVOICE/i.test(documentText)
-  const hasPiNumber = /\bP\.?I\.?\s*(?:NO\.?|NUMBER)?\s*:/i.test(documentText)
-  if (!hasPiTitle && !(hasPiNumber && headerIndex >= 0)) {
-    throw new Error('未识别为 PI：请上传含 PI 编号和货品表格的可选中文字 PDF；扫描件需先 OCR。')
-  }
-  if (headerIndex < 0) throw new Error('未找到货品明细表。请确认 PDF 含 Item、Description、QTY 等可选中文字。')
-
   const importedItems = []
   const importedFees = { ...defaultFees }
-  for (const row of rows.slice(headerIndex + 1)) {
+  const candidateRows = headerIndex >= 0 ? rows.slice(headerIndex + 1) : rows
+  for (const row of candidateRows) {
     const cells = row.cells
     const rowText = pdfRowText(row)
     if (/^(BANK ACCOUNT:|The seller|Page\b)/i.test(rowText)) break
-    if (!/^\d+$/.test(cells[0]?.text || '')) continue
+    if (!/^\d+\.?$/.test(cells[0]?.text || '')) continue
     const qtyIndex = cells.findIndex((cell, index) => index > 1 && /^(?:\d+(?:\.\d+)?(?:\s*KG)?|\*\*\*)$/i.test(cell.text))
     if (qtyIndex < 2) continue
     const description = cells.slice(1, qtyIndex).map((cell) => cell.text).join(' ').trim()
@@ -734,6 +718,146 @@ async function parsePiPdf(file) {
       }
     }
   }
+  return { items: importedItems, fees: importedFees }
+}
+
+function ocrMetadata(text) {
+  const value = (pattern) => text.match(pattern)?.[1]?.replace(/\s+/g, ' ').trim() || ''
+  const date = value(/\bDate:\s*(\d{2}\/\d{2}\/\d{4})/i)
+  const [day, month, year] = date.split('/')
+  return {
+    customer: {
+      company: value(/Company:\s*(.*?)\s+PI\s*NO\.?\s*:/i),
+      attn: value(/ATTN:\s*(.*?)(?:\n|\bAdd\.?)/i),
+      address: value(/\bAdd\.?\s*(.*?)(?:\s+By:|\nTel:)/i),
+      tel: value(/\bTel:\s*(\+?\d[\d\s-]+)/i),
+      buyer: value(/Company:\s*(.*?)\s+PI\s*NO\.?\s*:/i),
+    },
+    doc: {
+      no: value(/PI\s*NO\.?\s*:\s*([^\s]+)/i),
+      date: /^\d{2}\/\d{2}\/\d{4}$/.test(date) ? `${year}-${month}-${day}` : '',
+      by: value(/\bBy:\s*([^\n]+)/i),
+      from: value(/\bFrom:\s*([^\s]+)/i),
+      to: value(/\bTo\s+([^\n\s]+)/i),
+      payment: '',
+    },
+  }
+}
+
+function parseOcrInvoiceTable(text) {
+  const fees = { ...defaultFees }
+  const items = []
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.replace(/\s+/g, ' ').replace(/^\|+\s*/, '').trim()
+    const itemMatch = line.match(/^(\d+)\s+(.+?)\s+(\d+(?:\.\d+)?\s*KG)\s+(\d+(?:\.\d+)?)[^\d]*\s+(\d+(?:\.\d+)?)/i)
+    if (itemMatch) {
+      const [, , description, qty, unitPrice] = itemMatch
+      items.push({ ...blankItem(), description: description.replace(/^\|+\s*/, '').trim(), hsCode: '', qty: moneyFromPdf(qty), unitPrice, currency: 'USD' })
+      continue
+    }
+    const freightMatch = line.match(/^\d+\s+((?:UPS|U[PR]S).{0,12}Courier.{0,12}Freight).*?(\d+(?:\.\d+)?)[^\d]*$/i)
+    if (freightMatch) {
+      fees.courier = moneyFromScannedPdf(freightMatch[2])
+      fees.courierLabel = freightMatch[1]
+      continue
+    }
+    const bankMatch = line.match(/^\d+\s+\|?\s*(Bank\s+transfer\s+Fee).*?(\d+(?:\.\d+)?)[^\d]*$/i)
+    if (bankMatch) fees.bank = moneyFromScannedPdf(bankMatch[2])
+    else if (/^4\s+.*(?:bank|transfer|fee)/i.test(line)) {
+      const amount = [...line.matchAll(/\d+(?:\.\d+)?/g)].at(-1)?.[0]
+      if (amount) fees.bank = moneyFromScannedPdf(amount)
+    }
+  }
+  return { items, fees }
+}
+
+function moneyFromScannedPdf(value) {
+  const raw = moneyFromPdf(value)
+  if (!raw || raw.includes('.')) return raw
+  if (/^\d{4}$/.test(raw)) return `${raw.slice(0, 2)}.${raw.slice(2)}`
+  if (/^\d{3}$/.test(raw) && raw.endsWith('4')) return raw.slice(0, -1)
+  return raw
+}
+
+async function recognizeScannedPi(page) {
+  const viewport = page.getViewport({ scale: 250 / 72 })
+  const fullCanvas = document.createElement('canvas')
+  fullCanvas.width = Math.ceil(viewport.width)
+  fullCanvas.height = Math.ceil(viewport.height)
+  await page.render({ canvasContext: fullCanvas.getContext('2d'), viewport }).promise
+
+  const cropInvoiceArea = (leftFraction, topFraction, widthFraction, heightFraction) => {
+    const canvas = document.createElement('canvas')
+    const left = Math.floor(fullCanvas.width * leftFraction)
+    const top = Math.floor(fullCanvas.height * topFraction)
+    const width = Math.floor(fullCanvas.width * widthFraction)
+    const height = Math.floor(fullCanvas.height * heightFraction)
+    canvas.width = width
+    canvas.height = height
+    canvas.getContext('2d').drawImage(fullCanvas, left, top, width, height, 0, 0, width, height)
+    return canvas
+  }
+  const productRowCanvases = [0.344, 0.372].map((rowTop) => cropInvoiceArea(0.045, rowTop, 0.91, 0.025))
+  const feeRowCandidates = [
+    [0.385, 0.389, 0.393, 0.397],
+    [0.412, 0.416, 0.420, 0.424],
+  ].map((tops) => tops.map((rowTop) => cropInvoiceArea(0.045, rowTop, 0.91, 0.025)))
+
+  const { createWorker } = await import('tesseract.js')
+  const worker = await createWorker('eng', 1, {
+    workerPath: publicAsset('ocr/worker.min.js'),
+    corePath: publicAsset('ocr'),
+    langPath: publicAsset('ocr'),
+    logger: () => {},
+  })
+  try {
+    const pageResult = await worker.recognize(fullCanvas, { tessedit_pageseg_mode: '3' })
+    const tableLines = []
+    for (const rowCanvas of productRowCanvases) {
+      const rowResult = await worker.recognize(rowCanvas, { tessedit_pageseg_mode: '7' })
+      tableLines.push(rowResult.data.text)
+    }
+    for (const [index, candidates] of feeRowCandidates.entries()) {
+      const variants = []
+      for (const candidate of candidates) {
+        const rowResult = await worker.recognize(candidate, { tessedit_pageseg_mode: '7' })
+        variants.push(rowResult.data.text.trim())
+      }
+      const keyword = index === 0 ? /courier|freight/i : /bank|transfer|fee/i
+      const best = variants.sort((a, b) => {
+        const score = (value) => {
+          const withoutItemNo = value.replace(/^\d+\s+/, '')
+          return (keyword.test(value) ? 100 : 0) + (/\d+(?:\.\d+)?/.test(withoutItemNo) ? 1000 : 0) + value.length
+        }
+        return score(b) - score(a)
+      })[0]
+      tableLines.push(`${index + 3} ${best.replace(/^\d+\s+/, '')}`)
+    }
+    return { ...ocrMetadata(pageResult.data.text), ...parseOcrInvoiceTable(tableLines.join('\n')) }
+  } finally {
+    await worker.terminate()
+  }
+}
+
+async function parsePiPdf(file, onProgress = () => {}) {
+  const [pdfjs, workerModule] = await Promise.all([
+    import('pdfjs-dist'),
+    import('pdfjs-dist/build/pdf.worker.min.mjs?url'),
+  ])
+  pdfjs.GlobalWorkerOptions.workerSrc = workerModule.default
+  const document = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise
+  const page = await document.getPage(1)
+  const textContent = await page.getTextContent()
+  const rows = groupPdfTextRows(textContent.items)
+  const extracted = parseInvoiceRows(rows)
+  if (!extracted.items.length && !num(extracted.fees.courier) && !num(extracted.fees.bank) && !num(extracted.fees.other)) {
+    onProgress('正在自动识别扫描 PI，请稍候…')
+    const scanned = await recognizeScannedPi(page)
+    if (!scanned.items.length && !num(scanned.fees.courier) && !num(scanned.fees.bank)) {
+      throw new Error('自动识别未读到有效货品或费用行。')
+    }
+    return scanned
+  }
 
   const pdfDate = fieldFromPdf(rows, 'Date')
   const [day, month, year] = pdfDate.split('/')
@@ -753,8 +877,8 @@ async function parsePiPdf(file) {
       to: fieldFromPdfCell(rows, 'To'),
       payment: '',
     },
-    fees: importedFees,
-    items: importedItems,
+    fees: extracted.fees,
+    items: extracted.items,
   }
 }
 
@@ -1061,6 +1185,11 @@ function buildRows(items, fees, totals, kind = 'PI') {
     }
   })
   if (hasQuotationTiers) return goods
+  if (kind === 'CI') {
+    return totals.courier > 0
+      ? [...goods, { description: courierDescription(fees, kind), qty: null, unitPrice: null, subtotal: totals.courier }]
+      : goods
+  }
   const extraRows = []
   if (rule.needsLocal && totals.local > 0) {
     extraRows.push({ description: 'Local charge', qty: null, unitPrice: null, subtotal: totals.local })
@@ -1091,6 +1220,26 @@ function buildRows(items, fees, totals, kind = 'PI') {
 
 function buildDocumentData(items, fees, totals, kind = 'PI') {
   const rows = buildRows(items, fees, totals, kind)
+  if (kind === 'CI') {
+    const grand = roundTwo(rows.reduce((sum, row) => sum + num(row.subtotal), 0))
+    const qty = rows.reduce((sum, row) => sum + num(row.qty), 0)
+    return {
+      rows,
+      totals: {
+        ...totals,
+        qty,
+        goods: grand,
+        local: 0,
+        ocean: 0,
+        insurance: 0,
+        courier: 0,
+        bank: 0,
+        other: 0,
+        grand,
+        cifPerKg: qty > 0 ? roundTwo(grand / qty) : 0,
+      },
+    }
+  }
   const hasQuotationTiers = kind === 'QUOTATION' && items.some((item) => parseTierPrices(item.tierPrices).length > 0)
   if (!hasQuotationTiers) return { rows, totals }
 
@@ -1124,6 +1273,7 @@ function downloadWorkbook(workbook, filename) {
 async function exportPdf(kind, payload) {
   const { customer, doc, rows, totals, fees, companyProfile } = payload
   const sellerSignature = sellerSignatureOptions.find((option) => option.id === doc.sellerSignatureId)
+    || (doc.sellerSignatureId === 'gong-saijain-alex' ? sellerSignatureOptions.find((option) => option.id === 'gongsaiqin-alex') : null)
   const title = kind === 'PI' ? 'PROFORMA INVOICE' : kind === 'CI' ? 'COMMERCIAL INVOICE' : 'QUOTATION'
   const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
   await registerPdfFonts(pdf)
@@ -1465,7 +1615,7 @@ function App() {
     }
     try {
       setStatus('正在导入 PI PDF...')
-      const imported = await parsePiPdf(file)
+      const imported = await parsePiPdf(file, setStatus)
       setCustomer({ ...defaultCustomer, ...imported.customer })
       setDoc((current) => ({
         ...defaultDoc,
