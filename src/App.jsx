@@ -697,12 +697,13 @@ async function parsePiPdf(file) {
   const textContent = await page.getTextContent()
   const rows = groupPdfTextRows(textContent.items)
   const documentText = rows.map(pdfRowText).join('\n')
-  if (!/PROFORMA\s+INVOICE/i.test(documentText)) {
-    throw new Error('文件不是可识别的 PI PDF。请上传带可选中文字的 PROFORMA INVOICE，扫描件需要先 OCR。')
-  }
-
   const headerIndex = rows.findIndex((row) => /\bItem\b/i.test(pdfRowText(row)) && /Description/i.test(pdfRowText(row)))
-  if (headerIndex < 0) throw new Error('未找到 PI 的货品明细表，请确认 PDF 不是扫描件或排版未损坏。')
+  const hasPiTitle = /(?:PROFORMA|PERFORMA)\s+INVOICE/i.test(documentText)
+  const hasPiNumber = /\bP\.?I\.?\s*(?:NO\.?|NUMBER)?\s*:/i.test(documentText)
+  if (!hasPiTitle && !(hasPiNumber && headerIndex >= 0)) {
+    throw new Error('未识别为 PI：请上传含 PI 编号和货品表格的可选中文字 PDF；扫描件需先 OCR。')
+  }
+  if (headerIndex < 0) throw new Error('未找到货品明细表。请确认 PDF 含 Item、Description、QTY 等可选中文字。')
 
   const importedItems = []
   const importedFees = { ...defaultFees }
@@ -711,12 +712,14 @@ async function parsePiPdf(file) {
     const rowText = pdfRowText(row)
     if (/^(BANK ACCOUNT:|The seller|Page\b)/i.test(rowText)) break
     if (!/^\d+$/.test(cells[0]?.text || '')) continue
-    const qtyIndex = cells.findIndex((cell) => /^(?:\d+(?:\.\d+)?KG|\*\*\*)$/i.test(cell.text))
+    const qtyIndex = cells.findIndex((cell, index) => index > 1 && /^(?:\d+(?:\.\d+)?(?:\s*KG)?|\*\*\*)$/i.test(cell.text))
     if (qtyIndex < 2) continue
     const description = cells.slice(1, qtyIndex).map((cell) => cell.text).join(' ').trim()
     const amount = moneyFromPdf(cells.at(-1)?.text)
     if (!description || !amount) continue
-    if (/courier\s+freight/i.test(description)) {
+    if (/^freight$/i.test(description)) {
+      importedFees.courier = amount
+    } else if (/courier\s+freight/i.test(description)) {
       importedFees.courier = amount
       importedFees.courierLabel = description
     } else if (/bank\s+transfer\s+fee/i.test(description)) {
